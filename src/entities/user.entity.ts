@@ -26,7 +26,10 @@ export class User {
   image: string;
 
   @Column({ nullable: true })
-  name: string;
+  fistName: string;
+
+  @Column({ nullable: true })
+  lastName: string;
 
   @Column({
     type: 'enum',

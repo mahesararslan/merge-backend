@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import dbConfig from './config/db.config';
 import dbConfigProduction from './config/db.config.production';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { UserModule } from './user/user.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
           ? dbConfigProduction()
           : dbConfig(),
     }),
+    UserModule,
   ],
   controllers: [AppController],
   providers: [AppService],

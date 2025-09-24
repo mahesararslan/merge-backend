@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import dbConfig from './config/db.config';
 import dbConfigProduction from './config/db.config.production';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 @Module({
   imports: [
@@ -11,6 +12,12 @@ import dbConfigProduction from './config/db.config.production';
       isGlobal: true,
       expandVariables: true,
       load: [dbConfig, dbConfigProduction],
+    }),
+    TypeOrmModule.forRootAsync({
+      useFactory: () =>
+        process.env.NODE_ENV === 'production'
+          ? dbConfigProduction()
+          : dbConfig(),
     }),
   ],
   controllers: [AppController],

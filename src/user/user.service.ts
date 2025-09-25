@@ -49,6 +49,10 @@ export class UserService {
     return this.userRepository.save(user);
   }
 
+  async updateHashedRefreshToken(userId: string, hashedRefreshToken: string | null) {
+    return await this.update(userId, { hashedRefreshToken } as UpdateUserDto);
+  }
+
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);
     await this.userRepository.remove(user);

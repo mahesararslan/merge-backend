@@ -4,7 +4,6 @@ import { Strategy, VerifyCallback } from "passport-google-oauth20";
 import googleOauthConfig from "../config/google-oauth.config";
 import { ConfigType } from "@nestjs/config";
 import { AuthService } from "../auth.service";
-import { Role } from "../enums/role.enums";
 import { UserRole } from "src/entities/user.entity";
 
 @Injectable()

@@ -31,6 +31,12 @@ export class User {
   @Column({ nullable: true })
   lastName: string;
 
+  @Column({ nullable: true })
+  hashedRefreshToken: string 
+  
+  @Column({ default:true })
+  new_user: boolean
+
   @Column({
     type: 'enum',
     enum: UserRole,

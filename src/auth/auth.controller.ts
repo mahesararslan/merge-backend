@@ -16,19 +16,19 @@ import { Public } from './decorators/public.decorator';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { GoogleAuthGuard } from './guards/google-auth/google-auth.guard';
 import { RefreshAuthGuard } from './guards/refresh-auth/refresh-auth.guard';
-import { JwtAuthGuard } from './guards/jwt-auth/jwt-auth.guard';
 
-@Public() // this makes all the auth routes public, meaning they can be accessed without authentication
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Public()
   @HttpCode(HttpStatus.OK)
   @Post('signup')
   create(@Body() createUserDto: CreateUserDto) {
     return this.authService.signup(createUserDto);
   }
 
+  @Public()
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard('local')) 
   @Post('login')
@@ -36,6 +36,7 @@ export class AuthController {
     return await this.authService.login(req.user.id); 
   }
 
+  @Public()
   @HttpCode(HttpStatus.OK)
   @UseGuards(RefreshAuthGuard)
   @Post('refresh')
@@ -43,19 +44,25 @@ export class AuthController {
     return await this.authService.refreshToken(req.user.id); 
   }
 
+  @Public()
   @UseGuards(GoogleAuthGuard)
-  @Get("/google/login")
-  async googleLogin() {}
+  @Get("/google/user/login")
+  async googleUserLogin() {}
 
+  @Public()
+  @UseGuards(GoogleAuthGuard)
+  @Get("/google/admin/login")
+  async ggoogleAdminLogin() {}
+
+  @Public()
   @UseGuards(GoogleAuthGuard)
   @Get("/google/callback")
   async googleCallback(@Req() req, @Res() res) {
     const response = await this.authService.login(req.user.id);
-    res.redirect(`http://localhost:5173?token=${response.token}&userId=${response.userId}`);
+    res.redirect(`${process.env.FRONTEND_URL}?token=${response.token}&refreshToken=${response.refreshToken}`);
   }
 
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
   @Post('/logout')
   async SignOut(@Req() req) {
     this.authService.signOut(req.user.id);

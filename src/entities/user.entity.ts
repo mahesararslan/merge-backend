@@ -26,7 +26,7 @@ export class User {
   image: string;
 
   @Column({ nullable: true })
-  fistName: string;
+  firstName: string;
 
   @Column({ nullable: true })
   lastName: string;

@@ -3,5 +3,5 @@ import { Role } from "../enums/role.enums";
 
 export type CurrentUser = {
     id: string;
-    role: UserRole.USER | UserRole.ADMIN;
+    role: UserRole;
 };

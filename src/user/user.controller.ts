@@ -14,6 +14,9 @@ import {
 import { UserService } from './user.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { UserRole } from 'src/entities/user.entity';
+import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
 
 @Controller('user')
 export class UserController {
@@ -33,11 +36,22 @@ export class UserController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Patch('/update')
+  updateProfile(
+    @Req() req,
+    @Body() updateUserDto: UpdateUserDto,
+  ) {
+    return this.userService.update(req.user.id, updateUserDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.findOne(id);
   }
 
+  @Roles(UserRole.ADMIN)
+  @UseGuards(RolesGuard)
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(
@@ -46,5 +60,7 @@ export class UserController {
   ) {
     return this.userService.update(id, updateUserDto);
   }
+
+  // add route for getting all users of a specific room
 
 }

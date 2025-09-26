@@ -18,23 +18,34 @@ export class GoogleStrategy extends PassportStrategy(Strategy) { // auto registe
       clientSecret: googleConfiguration.clientSecret ?? "",
       callbackURL: googleConfiguration.googleCallbackUrl ?? "",
       scope: ["email", "profile"],
+      passReqToCallback: true // to get access to the request object in the validate method
     });                                                                                                
   }
 
+  authorizationParams(options: any) {
+    return {
+      prompt: 'select_account'
+    };
+  }
+
   async validate(
+    req: any,
     accessToken: string, // donot sent these to the client as they are access and refresh tokens from the google api
     refreshToken: string, // you should always send your own access and refresh tokens using JWT
     profile: any,
-    done: VerifyCallback
+    done: VerifyCallback,
   ) {
     console.log({ profile });
+
+    const intendedRole = req.query.state ? JSON.parse(req.query.state).role : UserRole.USER;
+    
     const user = await this.authService.validateGoogleUser({
         email: profile.emails[0].value,
         firstName: profile.name.givenName,
         lastName: profile.name.familyName,
         image: profile.photos[0].value,
         password: "", // Password is not used for Google OAuth users
-        role: UserRole.USER // Default role, can be adjusted as needed
+        role: intendedRole // Default role, can be adjusted as needed
     });
     done(null, user); // never pass profile obj in this as the Id this object is from the google api and not from your database
   }

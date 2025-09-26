@@ -86,7 +86,7 @@ export class AuthService {
         const user = await this.userService.findByEmail(googleUser.email);
         if (!user) {
             // If user does not exist, create a new user
-            return this.userService.create(googleUser);
+            return this.userService.create(googleUser, true); // true indicates it's a Google account
         }
         // If user exists, return the user
         return user;

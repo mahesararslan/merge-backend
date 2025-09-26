@@ -44,8 +44,11 @@ export class User {
   })
   role: UserRole;
 
-  @Column({ default: true })
+  @Column({ default: false })
   isVerified: boolean;
+
+  @Column({ default: false })
+  googleAccount: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

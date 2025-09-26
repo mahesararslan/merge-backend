@@ -31,7 +31,7 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard('local')) 
-  @Post('login')
+  @Post('signin')
   async login(@Request() req) {
     return await this.authService.login(req.user.id); 
   }
@@ -46,13 +46,8 @@ export class AuthController {
 
   @Public()
   @UseGuards(GoogleAuthGuard)
-  @Get("/google/user/login")
-  async googleUserLogin() {}
-
-  @Public()
-  @UseGuards(GoogleAuthGuard)
-  @Get("/google/admin/login")
-  async ggoogleAdminLogin() {}
+  @Get("/google/login")
+  async googleLogin() {}
 
   @Public()
   @UseGuards(GoogleAuthGuard)

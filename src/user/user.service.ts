@@ -13,14 +13,18 @@ export class UserService {
     private userRepository: Repository<User>,
   ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
+  async create(createUserDto: CreateUserDto, googleAccount?: boolean): Promise<User> {
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
     const user = this.userRepository.create({
       ...createUserDto,
       password: hashedPassword,
+      googleAccount,
+      isVerified: googleAccount ? true : false, // if google account, mark as verified
     });
     return this.userRepository.save(user);
   }
+
+  
 
   async findAll(): Promise<User[]> {
     return this.userRepository.find();

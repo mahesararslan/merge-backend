@@ -23,19 +23,11 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @UseGuards(JwtAuthGuard)
-  @Get()
-  findAll() {
-    console.log("Recieved req for user get all")
-    return this.userService.findAll();
-  }
-
-  @UseGuards(JwtAuthGuard)
   @Get('profile')
   getProfile(@Req() req) {
     return this.userService.findOne(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch('/update')
   updateProfile(
     @Req() req,
@@ -44,20 +36,18 @@ export class UserController {
     return this.userService.update(req.user.id, updateUserDto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.findOne(id);
   }
 
   @Roles(UserRole.ADMIN)
-  @UseGuards(RolesGuard)
-  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,
   ) {
+    // this route should be changed afterwards to only allow updating the permissions.
     return this.userService.update(id, updateUserDto);
   }
 

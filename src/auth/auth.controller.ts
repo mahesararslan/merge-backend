@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   Request,
   Res,
@@ -16,6 +17,8 @@ import { Public } from './decorators/public.decorator';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import { GoogleAuthGuard } from './guards/google-auth/google-auth.guard';
 import { RefreshAuthGuard } from './guards/refresh-auth/refresh-auth.guard';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ForgotPasswordDto } from './dto/forget-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -38,10 +41,32 @@ export class AuthController {
 
   @Public()
   @HttpCode(HttpStatus.OK)
+  @Get('verify')
+  async verifyEmail(@Query('token') token: string) {
+    return this.authService.verifyEmail(token);
+  }
+
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
   @UseGuards(RefreshAuthGuard)
   @Post('refresh')
   async refreshToken(@Req() req) { 
     return await this.authService.refreshToken(req.user.id); 
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(forgotPasswordDto);
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
   }
 
   @Public()

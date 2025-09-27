@@ -16,6 +16,8 @@ import googleOauthConfig from './config/google-oauth.config';
 import { GoogleStrategy } from './strategies/google.strategy';
 import refreshJwtConfig from './config/refresh-jwt.config';
 import { RefreshJwtStrategy } from './strategies/refresh-jwt.strategy';
+import { MailModule } from 'src/mail/mail.module';
+import { MailService } from 'src/mail/mail.service';
 
 @Module({
   imports: [
@@ -24,9 +26,17 @@ import { RefreshJwtStrategy } from './strategies/refresh-jwt.strategy';
     ConfigModule.forFeature(jwtConfig),
     ConfigModule.forFeature(refreshJwtConfig),
     ConfigModule.forFeature(googleOauthConfig),
+    MailModule
   ],
   controllers: [AuthController],
-  providers: [AuthService, UserService, LocalStrategy, JwtStrategy, GoogleStrategy, RefreshJwtStrategy, {
+  providers: [
+    AuthService,
+    UserService,
+    LocalStrategy,
+    JwtStrategy,
+    GoogleStrategy,
+    RefreshJwtStrategy,
+    MailService, {
     provide: APP_GUARD, // apply JWT auth guard on all routes
     useClass: JwtAuthGuard
   },{

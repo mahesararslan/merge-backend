@@ -30,9 +30,6 @@ export class User {
 
   @Column({ nullable: true })
   lastName: string;
-
-  @Column({ nullable: true })
-  hashedRefreshToken: string 
   
   @Column({ default:true })
   new_user: boolean
@@ -49,6 +46,18 @@ export class User {
 
   @Column({ default: false })
   googleAccount: boolean;
+
+  @Column({ nullable: true })
+  hashedRefreshToken: string; 
+
+  @Column({ nullable: true })
+  verificationToken: string;
+
+  @Column({ nullable: true })
+  passwordResetToken: string;
+
+  @Column({ nullable: true })
+  passwordResetExpires: Date;
 
   @CreateDateColumn()
   createdAt: Date;

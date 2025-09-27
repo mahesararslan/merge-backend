@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -16,9 +15,11 @@ import refreshJwtConfig from './config/refresh-jwt.config';
 import { ConfigType } from '@nestjs/config';
 import * as argon2 from 'argon2';
 import { MailService } from 'src/mail/mail.service';
-import { first } from 'rxjs';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ForgotPasswordDto } from './dto/forget-password.dto';
+import { SendOTPDto } from './dto/send-otp.dto';
+import { Toggle2FADto } from './dto/toggle2fa.dto';
+import { LoginWithOTPDto } from './dto/otp-signin.dto';
 
 @Injectable()
 export class AuthService {
@@ -38,7 +39,7 @@ export class AuthService {
 
     const isPasswordValid = await compare(password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid password');
-    return { id: user.id };
+    return { id: user.id, email: user.email, twoFactorEnabled: user.twoFactorEnabled };
   }
 
   async signup(createUserDto: CreateUserDto) {
@@ -56,7 +57,15 @@ export class AuthService {
     return user;
   }
 
+  async signin(userId: string, twoFactorEnabled: boolean, email: string) {
+    if (twoFactorEnabled) { 
+        return this.sendOTP({ email });
+    }
+    return this.login(userId);
+  }
+
   async login(userId: string) {
+
     const { accessToken, refreshToken } = await this.generateTokens(userId);
     const hashedRefreshToken = await argon2.hash(refreshToken);
     await this.userService.updateHashedRefreshToken(userId, hashedRefreshToken);
@@ -67,8 +76,28 @@ export class AuthService {
     };
   }
 
+  async loginWithOTP(loginWithOTPDto: LoginWithOTPDto) {
+    const { email, otpCode } = loginWithOTPDto;
+    const user = await this.userService.findByEmail(email);
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (!user.twoFactorEnabled) {
+      throw new BadRequestException('2FA is not enabled for this account');
+    }
+
+    // Verify OTP
+    const otpUser = await this.userService.verifyOTP(email, otpCode);
+    if (!otpUser) {
+      throw new UnauthorizedException('Invalid or expired OTP code');
+    }
+
+    await this.userService.clearOTP(user.id);
+    return this.login(user.id);
+  }
+
   async verifyEmail(token: string) {
-    try {
       const user = await this.userService.verifyEmail(token);
 
       // Generate tokens for the verified user
@@ -86,15 +115,7 @@ export class AuthService {
         },
         ...tokens,
       };
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof ConflictException
-      ) {
-        throw error;
-      }
-      throw new BadRequestException('Failed to verify email');
-    }
+    
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
@@ -110,42 +131,26 @@ export class AuthService {
       );
 
       return {
-        message:
-          'Password reset email sent successfully. Please check your email.',
+        message: 'Password reset email sent successfully. Please check your email.',
       };
     } catch (error) {
       if (error instanceof NotFoundException) {
-        // For security, don't reveal if email exists or not
-        return {
-          message:
-            'If an account with that email exists, a password reset link has been sent.',
-        };
+        return { message: 'Could not process request.' };
       }
       throw new BadRequestException('Failed to process password reset request');
     }
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
-    try {
-      const user = await this.userService.resetPassword(
+      await this.userService.resetPassword(
         resetPasswordDto.token,
         resetPasswordDto.newPassword,
       );
 
       return {
-        message:
-          'Password reset successfully. You can now log in with your new password.',
-        email: user.email,
+        success: true,
+        message: 'Password reset successfully. You can now log in with your new password.',
       };
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof ConflictException
-      ) {
-        throw error;
-      }
-      throw new BadRequestException('Failed to reset password');
-    }
   }
 
   async generateTokens(userId: string) {
@@ -195,11 +200,52 @@ export class AuthService {
   async validateGoogleUser(googleUser: CreateUserDto) {
     const user = await this.userService.findByEmail(googleUser.email);
     if (!user) {
-      // If user does not exist, create a new user
       return this.userService.create(googleUser, true); // true indicates it's a Google account
     }
-    // If user exists, return the user
     return user;
+  }
+
+  async sendOTP(sendOTPDto: SendOTPDto) {
+    const { email } = sendOTPDto;
+
+    const user = await this.userService.findByEmail(email);
+    if (!user) {
+        throw new NotFoundException('User with this email does not exist');
+    }
+
+    if (!user.twoFactorEnabled) {
+        throw new BadRequestException('2FA is not enabled for this account');
+    }
+
+    // Generate and send new OTP
+    const otpCode = await this.userService.setOTPCode(user.id);
+
+    if (!otpCode) {
+      throw new BadRequestException('Could not generate OTP code. Please try again.');
+    }
+
+    await this.mailService.sendOTPEmail(
+      user.email,
+      user.firstName || user.lastName || 'User',
+      otpCode,
+    );
+
+    return {
+      message: 'A new OTP has been sent to your email.',
+    };
+  }
+
+  async toggle2FA(userId: string, toggle2FADto: Toggle2FADto) {
+    const { enable } = toggle2FADto;
+
+    const user = await this.userService.toggle2FA(userId, enable);
+
+    return {
+      message: enable
+        ? '2FA has been enabled for your account'
+        : '2FA has been disabled for your account',
+      twoFactorEnabled: user.twoFactorEnabled,
+    };
   }
 
   async signOut(userId: string) {

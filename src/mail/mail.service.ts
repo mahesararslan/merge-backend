@@ -111,4 +111,38 @@ export class MailService {
       throw error;
     }
   }
+
+  async sendOTPEmail(email: string, name: string, otpCode: string): Promise<void> {
+    const mailOptions = {
+      from: `"${this.configService.get('MAIL_FROM_NAME')}" <${this.configService.get('MAIL_FROM_ADDRESS')}>`,
+      to: email,
+      subject: 'Your Login Verification Code',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Login Verification Code</h2>
+          <p>Hello ${name},</p>
+          <p>You are attempting to sign in to your account. Please use the verification code below:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <div style="background-color: #f8f9fa; border: 2px dashed #007bff; padding: 20px; border-radius: 10px; display: inline-block;">
+              <h1 style="color: #007bff; margin: 0; font-size: 32px; letter-spacing: 5px;">${otpCode}</h1>
+            </div>
+          </div>
+          <p>This verification code will expire in <strong>2 minutes</strong> for security purposes.</p>
+          <p>If you didn't attempt to sign in, please ignore this email and consider changing your password.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+          <p style="color: #666; font-size: 12px;">
+            This is an automated message, please do not reply to this email.
+          </p>
+        </div>
+      `,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      this.logger.log(`OTP email sent to ${email}`);
+    } catch (error) {
+      this.logger.error(`Failed to send OTP email to ${email}:`, error);
+      throw error;
+    }
+  }
 }

@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Query,
   Req,
@@ -19,6 +20,9 @@ import { GoogleAuthGuard } from './guards/google-auth/google-auth.guard';
 import { RefreshAuthGuard } from './guards/refresh-auth/refresh-auth.guard';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ForgotPasswordDto } from './dto/forget-password.dto';
+import { Toggle2FADto } from './dto/toggle2fa.dto';
+import { SendOTPDto } from './dto/send-otp.dto';
+import { LoginWithOTPDto } from './dto/otp-signin.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -36,7 +40,7 @@ export class AuthController {
   @UseGuards(AuthGuard('local')) 
   @Post('signin')
   async login(@Request() req) {
-    return await this.authService.login(req.user.id); 
+    return await this.authService.signin(req.user.id, req.user.twoFactorEnabled, req.user.email); 
   }
 
   @Public()
@@ -46,6 +50,25 @@ export class AuthController {
     return this.authService.verifyEmail(token);
   }
 
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('signin/otp')
+  async loginWithOTP(@Body() loginWithOTPDto: LoginWithOTPDto) {
+    return this.authService.loginWithOTP(loginWithOTPDto);
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-otp')
+  async resendOTP(@Body() sendOTPDto: SendOTPDto) {
+    return this.authService.sendOTP(sendOTPDto);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Patch('2fa/toggle')
+  async toggle2FA(@Req() req, @Body() toggle2FADto: Toggle2FADto) {
+    return this.authService.toggle2FA(req.user.id, toggle2FADto);
+  }
 
   @Public()
   @HttpCode(HttpStatus.OK)
@@ -78,7 +101,7 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   @Get("/google/callback")
   async googleCallback(@Req() req, @Res() res) {
-    const response = await this.authService.login(req.user.id);
+    const response = await this.authService.login(req.user.id); 
     res.redirect(`${process.env.FRONTEND_URL}?token=${response.token}&refreshToken=${response.refreshToken}`);
   }
 

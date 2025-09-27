@@ -15,6 +15,9 @@ export class UserService {
   ) {}
 
   async create(createUserDto: CreateUserDto, googleAccount?: boolean): Promise<User> {
+    const existingUser = await this.findByEmail(createUserDto.email);
+    if (existingUser) throw new ConflictException('Email already in use');
+
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
     const verificationToken = uuidv4();
     const user = this.userRepository.create({
@@ -88,8 +91,8 @@ export class UserService {
       throw new ConflictException('Email already verified');
     }
 
-    user.isVerified = true;
-    user.verificationToken = '';
+    user.isVerified = true; // @ts-ignore
+    user.verificationToken = null;
     return this.userRepository.save(user);
   }  
 
@@ -129,6 +132,65 @@ export class UserService {
 
     return this.userRepository.save(user);
   }
+
+  async toggle2FA(userId: string, enable: boolean): Promise<User> {
+  const user = await this.findOne(userId);
+  
+  user.twoFactorEnabled = enable;
+  
+  // Clear any existing OTP data when disabling 2FA
+  if (!enable) { // @ts-ignore
+    user.otpCode = null; // @ts-ignore
+    user.otpExpires = null;
+  }
+  
+  return this.userRepository.save(user);
+}
+
+async setOTPCode(userId: string): Promise<string> {
+  const user = await this.findOne(userId);
+  
+  // Generate 6-digit OTP
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  
+  // Set expiry to 2 minutes from now
+  const otpExpires = new Date();
+  otpExpires.setMinutes(otpExpires.getMinutes() + 2);
+  
+  user.otpCode = await bcrypt.hash(otpCode, 10);
+  user.otpExpires = otpExpires;
+  
+  await this.userRepository.save(user);
+  return otpCode;
+}
+
+async verifyOTP(email: string, otpCode: string): Promise<User | null> {
+  const user = await this.findByEmail(email);
+
+  // compare otpCode with hashed otpCode
+  if (user && user.otpCode) {
+    const isMatch = await bcrypt.compare(otpCode, user.otpCode);
+    if (!isMatch) {
+      return null;
+    }
+  } else {
+    return null;
+  }
+  
+  // Check if OTP has expired
+  if (user.otpExpires < new Date()) {
+    return null;
+  }
+  
+  return user;
+}
+
+async clearOTP(userId: string): Promise<void> {
+  await this.userRepository.update(userId, { // @ts-ignore
+    otpCode: null, // @ts-ignore
+    otpExpires: null,
+  });
+}
 
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);

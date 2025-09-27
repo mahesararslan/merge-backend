@@ -59,6 +59,15 @@ export class User {
   @Column({ nullable: true })
   passwordResetExpires: Date;
 
+  @Column({ default: false })
+  twoFactorEnabled: boolean;
+
+  @Column({ nullable: true })
+  otpCode: string;
+
+  @Column({ nullable: true })
+  otpExpires: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 

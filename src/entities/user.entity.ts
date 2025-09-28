@@ -25,10 +25,10 @@ export class User {
   @Column({ nullable: true })
   image: string;
 
-  @Column({ nullable: true })
+  @Column()
   firstName: string;
 
-  @Column({ nullable: true })
+  @Column()
   lastName: string;
   
   @Column({ default:true })

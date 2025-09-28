@@ -17,6 +17,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { UserRole } from 'src/entities/user.entity';
 import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 
 @Controller('user')
 export class UserController {
@@ -28,6 +29,7 @@ export class UserController {
     return this.userService.findOne(req.user.id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch('/update')
   updateProfile(
     @Req() req,
@@ -36,21 +38,21 @@ export class UserController {
     return this.userService.update(req.user.id, updateUserDto);
   }
 
+  @Patch('/change-password')
+  changePassword(
+    @Req() req,
+    @Body() updatePasswordDto: UpdatePasswordDto,
+  ) {
+    return this.userService.updatePassword(req.user.id, updatePasswordDto);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.findOne(id);
   }
 
-  @Roles(UserRole.ADMIN)
-  @Patch(':id')
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateUserDto: UpdateUserDto,
-  ) {
-    // this route should be changed afterwards to only allow updating the permissions.
-    return this.userService.update(id, updateUserDto);
-  }
 
   // add route for getting all users of a specific room
+  
 
 }

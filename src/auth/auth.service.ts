@@ -101,19 +101,13 @@ export class AuthService {
       const user = await this.userService.verifyEmail(token);
 
       // Generate tokens for the verified user
-      const tokens = await this.generateTokens(user.id);
+      const { accessToken, refreshToken } = await this.generateTokens(user.id);
 
       return {
         message: 'Email verified successfully',
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
-          isVerified: user.isVerified,
-        },
-        ...tokens,
+        userId: user.id,
+        token: accessToken,
+        refreshToken: refreshToken,
       };
     
   }
@@ -131,6 +125,7 @@ export class AuthService {
       );
 
       return {
+        success: true,
         message: 'Password reset email sent successfully. Please check your email.',
       };
     } catch (error) {
@@ -231,6 +226,7 @@ export class AuthService {
     );
 
     return {
+      success: true,
       message: 'A new OTP has been sent to your email.',
     };
   }
@@ -241,6 +237,7 @@ export class AuthService {
     const user = await this.userService.toggle2FA(userId, enable);
 
     return {
+      success: true,
       message: enable
         ? '2FA has been enabled for your account'
         : '2FA has been disabled for your account',

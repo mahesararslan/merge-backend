@@ -23,13 +23,11 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  @UseGuards(JwtAuthGuard)
   @Get('profile')
   getProfile(@Req() req) {
     return this.userService.findOne(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Patch('/update')
   updateProfile(
     @Req() req,
@@ -48,7 +46,7 @@ export class UserController {
 
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.userService.findOne(id);
+    return this.userService.getProfileWithID(id);
   }
 
 

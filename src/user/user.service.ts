@@ -48,6 +48,19 @@ export class UserService {
     return user;
   }
 
+  // for getting account details of other users.
+  async getProfileWithID(id: string) {
+    const user = await this.userRepository.findOne({ 
+      where: { id },
+      // select everything other than the password
+      select: ['id', 'email', 'firstName', 'lastName', 'role', 'image', 'new_user', 'createdAt']
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+    return user;
+  }
+
   async findByEmail(email: string) {
     return this.userRepository.findOne({ where: { email } });
   }

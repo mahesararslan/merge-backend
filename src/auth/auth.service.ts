@@ -53,6 +53,7 @@ export class AuthService {
 
     // Send verification email if not a Google account
     if (!user.googleAccount) {
+      console.log("Reached here to send email");
       await this.mailService.sendVerificationEmail(
         user.email,
         `${user.firstName} ${user.lastName}` || 'User',

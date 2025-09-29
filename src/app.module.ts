@@ -18,9 +18,9 @@ import { MailModule } from './mail/mail.module';
     }),
     TypeOrmModule.forRootAsync({
       useFactory: () =>
-        process.env.NODE_ENV === 'production'
-          ? dbConfigProduction()
-          : dbConfig(),
+        process.env.NODE_ENV === 'development'
+          ? dbConfig()
+          : dbConfigProduction(),
     }),
     UserModule,
     AuthModule,

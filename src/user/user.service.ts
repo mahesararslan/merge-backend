@@ -17,6 +17,7 @@ export class UserService {
 
   async create(createUserDto: CreateUserDto, googleAccount?: boolean): Promise<User> {
     const existingUser = await this.findByEmail(createUserDto.email);
+    console.log(existingUser);
     if (existingUser) throw new ConflictException('Email already in use');
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);

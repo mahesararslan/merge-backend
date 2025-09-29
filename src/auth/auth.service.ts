@@ -34,8 +34,14 @@ export class AuthService {
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.userService.findByEmail(email);
     if (!user) throw new UnauthorizedException('User not found');
-    if (!user.isVerified)
-      throw new UnauthorizedException('Please verify your email to login');
+    if (!user.isVerified) {
+      await this.mailService.sendVerificationEmail(
+        user.email,
+        `${user.firstName} ${user.lastName}` || 'User',
+        user.verificationToken,
+      );
+      throw new UnauthorizedException('Please verify your email to login, A link has been sent to your email');
+    }
 
     const isPasswordValid = await compare(password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid password');
@@ -109,7 +115,6 @@ export class AuthService {
         token: accessToken,
         refreshToken: refreshToken,
       };
-    
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {

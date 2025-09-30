@@ -61,7 +61,10 @@ export class AuthService {
       );
     }
 
-    return user;
+    return {
+      success: true,
+      message: 'User registered successfully. Please check your email to verify your account.',
+    };
   }
 
   async signin(userId: string, twoFactorEnabled: boolean, email: string) {
@@ -109,6 +112,8 @@ export class AuthService {
 
       // Generate tokens for the verified user
       const { accessToken, refreshToken } = await this.generateTokens(user.id);
+      const hashedRefreshToken = await argon2.hash(refreshToken);
+      await this.userService.updateHashedRefreshToken(user.id, hashedRefreshToken);
 
       return {
         message: 'Email verified successfully',

@@ -8,6 +8,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
+// import { CacheInterceptor, CacheModule } from '@nestjs/cache-manager';
+// import { APP_INTERCEPTOR } from '@nestjs/core';
 
 @Module({
   imports: [
@@ -22,11 +24,22 @@ import { MailModule } from './mail/mail.module';
           ? dbConfig()
           : dbConfigProduction(),
     }),
+    // CacheModule.register({
+    //   ttl: 300, // seconds (default cache lifetime)
+    //   max: 1000, // maximum number of items in cache
+    //   isGlobal: true, // makes cache available app-wide
+    // }),
     UserModule,
     AuthModule,
     MailModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // {
+    //   provide: APP_INTERCEPTOR,
+    //   useClass: CacheInterceptor,
+    // },
+  ],
 })
 export class AppModule {}

@@ -38,6 +38,7 @@ export class UserService {
   }
 
   async findOne(id: string): Promise<User> {
+    console.log("Testing Cache");
     const user = await this.userRepository.findOne({ 
       where: { id },
       // select everything other than the password

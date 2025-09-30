@@ -75,12 +75,6 @@ export class MailService {
               </p>
             </div>
             
-            <div style="border-left: 4px solid #ffc107; padding-left: 15px; margin: 30px 0;">
-              <p style="color: #856404; font-size: 14px; margin: 0;">
-                ⏰ This link will expire in <strong>24 hours</strong> for security purposes.
-              </p>
-            </div>
-            
             <p style="color: #666; font-size: 14px; line-height: 1.6;">
               If you didn't create an account, please ignore this email and no further action is required.
             </p>

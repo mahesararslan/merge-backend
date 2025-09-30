@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   UseGuards,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -18,8 +19,10 @@ import { Roles } from 'src/auth/decorators/roles.decorator';
 import { UserRole } from 'src/entities/user.entity';
 import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
 import { UpdatePasswordDto } from './dto/update-password.dto';
+import { CacheInterceptor, CacheKey } from '@nestjs/cache-manager';
 
 @Controller('user')
+// @UseInterceptors(CacheInterceptor)
 export class UserController {
   constructor(private readonly userService: UserService) {}
 

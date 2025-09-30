@@ -36,10 +36,6 @@ import { MailModule } from './mail/mail.module';
   controllers: [AppController],
   providers: [
     AppService,
-    // {
-    //   provide: APP_INTERCEPTOR,
-    //   useClass: CacheInterceptor,
-    // },
   ],
 })
 export class AppModule {}

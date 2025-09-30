@@ -41,7 +41,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy) { // auto registe
         lastName: profile.name.familyName,
         image: profile.photos[0].value,
         password: "", // Password is not used for Google OAuth users
-        role: UserRole.USER, // Default role, can be adjusted as needed
+        role: UserRole.STUDENT, // Default role, can be adjusted as needed
     });
     done(null, user); // never pass profile obj in this as the Id this object is from the google api and not from your database
   }

@@ -23,6 +23,7 @@ import { ForgotPasswordDto } from './dto/forget-password.dto';
 import { Toggle2FADto } from './dto/toggle2fa.dto';
 import { SendOTPDto } from './dto/send-otp.dto';
 import { LoginWithOTPDto } from './dto/otp-signin.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('auth')
 export class AuthController {
@@ -50,6 +51,7 @@ export class AuthController {
     return this.authService.verifyEmail(token);
   }
 
+  @Throttle({ default: { limit: 2, ttl: 10000 } }) // 2 req per 10 seconds
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('signin/otp')
@@ -57,6 +59,7 @@ export class AuthController {
     return this.authService.loginWithOTP(loginWithOTPDto);
   }
 
+  @Throttle({ default: { limit: 2, ttl: 10000 } })
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('resend-otp')
@@ -78,6 +81,7 @@ export class AuthController {
     return await this.authService.refreshToken(req.user.id); 
   }
 
+  @Throttle({ default: { limit: 2, ttl: 10000 } })
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('forgot-password')
@@ -85,6 +89,7 @@ export class AuthController {
     return this.authService.forgotPassword(forgotPasswordDto);
   }
 
+  @Throttle({ default: { limit: 2, ttl: 10000 } }) 
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('reset-password')

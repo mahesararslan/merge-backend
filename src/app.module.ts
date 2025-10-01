@@ -8,8 +8,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
-// import { CacheInterceptor, CacheModule } from '@nestjs/cache-manager';
-// import { APP_INTERCEPTOR } from '@nestjs/core';
+import { CacheModule } from '@nestjs/cache-manager';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
   imports: [
@@ -24,11 +25,19 @@ import { MailModule } from './mail/mail.module';
           ? dbConfig()
           : dbConfigProduction(),
     }),
-    // CacheModule.register({
-    //   ttl: 300, // seconds (default cache lifetime)
-    //   max: 1000, // maximum number of items in cache
-    //   isGlobal: true, // makes cache available app-wide
-    // }),
+    CacheModule.register({
+      isGlobal: true, // makes cache available app-wide
+      ttl: 300 * 1000, // seconds (default cache lifetime)
+      max: 1000, // maximum number of items in cache
+    }),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          ttl: 60 * 1000, // Time to live for each request in milliseconds which in this case is 1 minute
+          limit: 15, // Maximum number of requests allowed within the TTL
+        }, 
+      ],
+    }),
     UserModule,
     AuthModule,
     MailModule,
@@ -36,6 +45,10 @@ import { MailModule } from './mail/mail.module';
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

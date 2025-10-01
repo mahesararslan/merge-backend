@@ -19,15 +19,18 @@ import { Roles } from 'src/auth/decorators/roles.decorator';
 import { UserRole } from 'src/entities/user.entity';
 import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
 import { UpdatePasswordDto } from './dto/update-password.dto';
-// import { CacheInterceptor, CacheKey } from '@nestjs/cache-manager';
+import { CacheInterceptor } from '@nestjs/cache-manager';
+import { Public } from 'src/auth/decorators/public.decorator';
 
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @UseInterceptors(CacheInterceptor)
   @Get('profile')
   getProfile(@Req() req) {
     console.log("Fetching Profile");
+    // return this.userService.testCache();
     return this.userService.findOne(req.user.id);
   }
 

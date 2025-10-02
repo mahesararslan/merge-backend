@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
+import { Tag } from './tag.entity';
 
 export enum UserRole {
   INSTRUCTOR = 'instructor',
@@ -40,6 +43,14 @@ export class User {
     default: UserRole.STUDENT,
   })
   role: UserRole;
+
+  @ManyToMany(() => Tag, (tag) => tag.users, { cascade: true })
+  @JoinTable({
+    name: 'user_tags', // join table name
+    joinColumn: { name: 'userId', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'tagId', referencedColumnName: 'id' },
+  })
+  tags: Tag[];
 
   @Column({ default: false })
   isVerified: boolean;

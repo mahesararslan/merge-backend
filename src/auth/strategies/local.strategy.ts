@@ -13,6 +13,7 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
 
   validate(email: string, password: string): Promise<any> {
     if(password === "") throw new UnauthorizedException('Password cannot be empty');
+    email = email.toLowerCase(); 
     return this.authService.validateUser(email, password);
   }
 }

@@ -8,6 +8,8 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { Cache } from 'cache-manager';
+import { TagService } from 'src/tag/tag.service';
+import { Tag } from 'src/entities/tag.entity';
 
 
 @Injectable()
@@ -16,6 +18,7 @@ export class UserService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     @Inject('CACHE_MANAGER') private cacheManager: Cache,
+    private tagService: TagService,
   ) {}
 
   async create(createUserDto: CreateUserDto, googleAccount?: boolean): Promise<User> {
@@ -44,7 +47,6 @@ export class UserService {
     console.log("Testing Cache");
     const user = await this.userRepository.findOne({ 
       where: { id },
-      // select everything other than the password
       select: ['id', 'email', 'firstName', 'lastName', 'role', 'image', 'new_user', 'isVerified', 'createdAt', 'updatedAt', 'hashedRefreshToken', 'googleAccount', 'twoFactorEnabled'] 
     });
     if (!user) {
@@ -230,5 +232,47 @@ async clearOTP(userId: string): Promise<void> {
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);
     await this.userRepository.remove(user);
+  }
+
+  async setUserTags(userId: string, tagNames: string[]): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['tags'],
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    // Get or create tags
+    const tags = await this.tagService.findOrCreateTags(tagNames);
+    
+    // Replace all tags
+    user.tags = tags;
+    
+    // Mark as not new user after setting tags
+    if (user.new_user) {
+      user.new_user = false;
+    }
+
+    const updatedUser = await this.userRepository.save(user);
+    
+    // Invalidate cache
+    // await this.cacheService.invalidateUserCache(userId);
+    
+    return updatedUser;
+  }
+
+  async getUserTags(userId: string): Promise<Tag[]> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['tags'],
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    return user.tags;
   }
 }

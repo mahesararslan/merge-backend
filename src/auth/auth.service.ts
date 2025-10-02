@@ -49,6 +49,8 @@ export class AuthService {
   }
 
   async signup(createUserDto: CreateUserDto) {
+    // cinvert email to lowercase
+    createUserDto.email = createUserDto.email.toLowerCase();
     const user = await this.userService.create(createUserDto);
 
     // Send verification email if not a Google account

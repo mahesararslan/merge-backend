@@ -44,7 +44,6 @@ export class UserService {
   }
 
   async findOne(id: string): Promise<User> {
-    console.log("Testing Cache");
     const user = await this.userRepository.findOne({ 
       where: { id },
       select: ['id', 'email', 'firstName', 'lastName', 'role', 'image', 'new_user', 'isVerified', 'createdAt', 'updatedAt', 'hashedRefreshToken', 'googleAccount', 'twoFactorEnabled'] 

@@ -34,8 +34,6 @@ export class UserController {
   @UseInterceptors(CacheInterceptor)
   @Get('profile')
   getProfile(@Req() req) {
-    console.log("Fetching Profile");
-    // return this.userService.testCache();
     return this.userService.findOne(req.user.id);
   }
 

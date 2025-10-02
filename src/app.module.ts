@@ -12,6 +12,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TagModule } from './tag/tag.module';
+import { RoomModule } from './room/room.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { TagModule } from './tag/tag.module';
     AuthModule,
     MailModule,
     TagModule,
+    RoomModule,
   ],
   controllers: [AppController],
   providers: [

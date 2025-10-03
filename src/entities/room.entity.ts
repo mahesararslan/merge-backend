@@ -7,9 +7,11 @@ import {
   UpdateDateColumn,
   ManyToMany,
   JoinTable,
+  OneToMany,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Tag } from './tag.entity';
+import { RoomMember } from './room-member.entity';
 
 @Entity('rooms')
 export class Room {
@@ -38,6 +40,9 @@ export class Room {
 
   @ManyToOne(() => User)
   admin: User;
+
+  @OneToMany(() => RoomMember, (member) => member.room)
+  members: RoomMember[];
 
   @CreateDateColumn()
   createdAt: Date;

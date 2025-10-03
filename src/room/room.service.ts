@@ -8,6 +8,7 @@ import { TagService } from '../tag/tag.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { Tag } from 'src/entities/tag.entity';
+import { RoomMember } from '../entities/room-member.entity'; // Add this import
 
 @Injectable()
 export class RoomService {
@@ -16,6 +17,8 @@ export class RoomService {
     private roomRepository: Repository<Room>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(RoomMember) // Add this
+    private roomMemberRepository: Repository<RoomMember>,
     private tagService: TagService,
   ) {}
 
@@ -185,14 +188,122 @@ private async generateUniqueRoomCode(): Promise<string> {
 
   async joinRoom(roomCode: string, userId: string) {
     const room = await this.findByRoomCode(roomCode);
+    const user = await this.userRepository.findOne({ where: { id: userId } });
     
-    // For now, just return the room info
-    // Later you can implement actual membership logic
-    return {
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Check if user is already a member
+    const existingMember = await this.roomMemberRepository.findOne({
+      where: { 
+        room: { id: room.id }, 
+        user: { id: userId } 
+      }
+    });
+
+    if (existingMember) {
+      return {
         success: true,
-        message: `User ${userId} joined room ${room.title}`,
+        message: `You are already a member of ${room.title}`,
         room
+      };
+    }
+
+    // Check if user is the admin (admin doesn't need to join as member)
+    if (room.admin.id === userId) {
+      return {
+        success: true,
+        message: `You are the admin of ${room.title}`,
+        room
+      };
+    }
+
+    // Create membership
+    const roomMember = this.roomMemberRepository.create({
+      room,
+      user
+    });
+
+    await this.roomMemberRepository.save(roomMember);
+
+    return {
+      success: true,
+      message: `Successfully joined ${room.title}`,
+      room
     };
+  }
+
+  async findJoinedRooms(userId: string): Promise<Room[]> {
+    const roomMembers = await this.roomMemberRepository.find({
+      where: { user: { id: userId } },
+      relations: ['room', 'room.admin', 'room.tags'],
+      order: { joinedAt: 'DESC' }
+    });
+
+    return roomMembers.map(member => member.room);
+  }
+
+  async findAllUserRooms(userId: string): Promise<{
+    createdRooms: Room[];
+    joinedRooms: Room[];
+    totalRooms: number;
+  }> {
+    const [createdRooms, joinedRooms] = await Promise.all([
+      this.findUserRooms(userId),
+      this.findJoinedRooms(userId)
+    ]);
+
+    return {
+      createdRooms,
+      joinedRooms,
+      totalRooms: createdRooms.length + joinedRooms.length
+    };
+  }
+
+  async leaveRoom(roomId: string, userId: string): Promise<void> {
+    const room = await this.findOne(roomId);
+
+    // Check if user is the admin
+    if (room.admin.id === userId) {
+      throw new ForbiddenException('Room admin cannot leave the room. Transfer ownership or delete the room instead.');
+    }
+
+    const roomMember = await this.roomMemberRepository.findOne({
+      where: { 
+        room: { id: roomId }, 
+        user: { id: userId } 
+      }
+    });
+
+    if (!roomMember) {
+      throw new NotFoundException('You are not a member of this room');
+    }
+
+    await this.roomMemberRepository.remove(roomMember);
+  }
+
+  async getRoomMembers(roomId: string, userId: string): Promise<RoomMember[]> {
+    const room = await this.findOne(roomId);
+
+    // Check if user has access to view members (admin or member)
+    const hasAccess = room.admin.id === userId || 
+      await this.roomMemberRepository.findOne({
+        where: { 
+          room: { id: roomId }, 
+          user: { id: userId } 
+        }
+      });
+
+    if (!hasAccess && !room.isPublic) {
+      throw new ForbiddenException('You do not have access to view this room\'s members');
+    }
+
+    return this.roomMemberRepository.find({
+      where: { room: { id: roomId } },
+      relations: ['user'],
+      order: { joinedAt: 'ASC' }
+    });
   }
 
   async searchRoomsByTags(tagNames: string[]): Promise<Room[]> {

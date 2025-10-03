@@ -4,11 +4,13 @@ import { UserService } from './user.service';
 import { UserController } from './user.controller';
 import { User } from 'src/entities/user.entity';
 import { TagModule } from 'src/tag/tag.module';
+import { RoomModule } from 'src/room/room.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([User]),
     TagModule,
+    RoomModule,
   ],
   controllers: [UserController],
   providers: [UserService],

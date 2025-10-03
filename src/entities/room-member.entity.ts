@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, ManyToOne, OneToMany } from 'typeorm';
+// src/entities/room-member.entity.ts
+import { 
+  Entity, 
+  PrimaryGeneratedColumn, 
+  ManyToOne, 
+  OneToMany,
+  CreateDateColumn,
+  UpdateDateColumn 
+} from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
 import { RoomPermissions } from './room-permissions.entity';
@@ -9,10 +17,10 @@ export class RoomMember {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Room)
+  @ManyToOne(() => Room, (room) => room.members, { onDelete: 'CASCADE' })
   room: Room;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   user: User;
 
   @OneToMany(() => RoomPermissions, (perm) => perm.member)
@@ -20,4 +28,10 @@ export class RoomMember {
 
   @OneToMany(() => LiveVideoPermissions, (perm) => perm.member)
   liveVideoPermissions: LiveVideoPermissions[];
+
+  @CreateDateColumn()
+  joinedAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

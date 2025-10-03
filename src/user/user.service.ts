@@ -1,4 +1,11 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -10,7 +17,8 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { Cache } from 'cache-manager';
 import { TagService } from 'src/tag/tag.service';
 import { Tag } from 'src/entities/tag.entity';
-
+import { RoomService } from 'src/room/room.service';
+import { Room } from 'src/entities/room.entity';
 
 @Injectable()
 export class UserService {
@@ -19,9 +27,13 @@ export class UserService {
     private userRepository: Repository<User>,
     @Inject('CACHE_MANAGER') private cacheManager: Cache,
     private tagService: TagService,
+    private roomService: RoomService,
   ) {}
 
-  async create(createUserDto: CreateUserDto, googleAccount?: boolean): Promise<User> {
+  async create(
+    createUserDto: CreateUserDto,
+    googleAccount?: boolean,
+  ): Promise<User> {
     const existingUser = await this.findByEmail(createUserDto.email);
     console.log(existingUser);
     if (existingUser) throw new ConflictException('Email already in use');
@@ -44,9 +56,23 @@ export class UserService {
   }
 
   async findOne(id: string): Promise<User> {
-    const user = await this.userRepository.findOne({ 
+    const user = await this.userRepository.findOne({
       where: { id },
-      select: ['id', 'email', 'firstName', 'lastName', 'role', 'image', 'new_user', 'isVerified', 'createdAt', 'updatedAt', 'hashedRefreshToken', 'googleAccount', 'twoFactorEnabled'] 
+      select: [
+        'id',
+        'email',
+        'firstName',
+        'lastName',
+        'role',
+        'image',
+        'new_user',
+        'isVerified',
+        'createdAt',
+        'updatedAt',
+        'hashedRefreshToken',
+        'googleAccount',
+        'twoFactorEnabled',
+      ],
     });
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
@@ -56,10 +82,19 @@ export class UserService {
 
   // for getting account details of other users.
   async getProfileWithID(id: string) {
-    const user = await this.userRepository.findOne({ 
+    const user = await this.userRepository.findOne({
       where: { id },
       // select everything other than the password
-      select: ['id', 'email', 'firstName', 'lastName', 'role', 'image', 'new_user', 'createdAt']
+      select: [
+        'id',
+        'email',
+        'firstName',
+        'lastName',
+        'role',
+        'image',
+        'new_user',
+        'createdAt',
+      ],
     });
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
@@ -84,36 +119,45 @@ export class UserService {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    const isOldPasswordValid = await bcrypt.compare(updatePasswordDto.oldPassword, user.password);
+    const isOldPasswordValid = await bcrypt.compare(
+      updatePasswordDto.oldPassword,
+      user.password,
+    );
     if (!isOldPasswordValid) {
       throw new BadRequestException('Old password is incorrect');
     }
 
-    const hashedNewPassword = await bcrypt.hash(updatePasswordDto.newPassword, 10);
+    const hashedNewPassword = await bcrypt.hash(
+      updatePasswordDto.newPassword,
+      10,
+    );
     user.password = hashedNewPassword;
     this.userRepository.save(user);
     return {
       success: true,
-      message: 'password updated successfully'
-    }
+      message: 'password updated successfully',
+    };
   }
 
-  async updateHashedRefreshToken(userId: string, hashedRefreshToken: string | null) {
+  async updateHashedRefreshToken(
+    userId: string,
+    hashedRefreshToken: string | null,
+  ) {
     return await this.update(userId, { hashedRefreshToken } as UpdateUserDto);
   }
 
   async findByVerificationToken(token: string): Promise<User | null> {
-    return this.userRepository.findOne({ 
-      where: { verificationToken: token } 
+    return this.userRepository.findOne({
+      where: { verificationToken: token },
     });
   }
 
   async findByPasswordResetToken(token: string): Promise<User | null> {
-    return this.userRepository.findOne({ 
-      where: { 
+    return this.userRepository.findOne({
+      where: {
         passwordResetToken: token,
         // passwordResetExpires: MoreThan(new Date()) // Uncomment if using TypeORM MoreThan
-      }
+      },
     });
   }
 
@@ -130,7 +174,7 @@ export class UserService {
     user.isVerified = true; // @ts-ignore
     user.verificationToken = null;
     return this.userRepository.save(user);
-  }  
+  }
 
   async setPasswordResetToken(email: string): Promise<User> {
     const user = await this.findByEmail(email);
@@ -148,8 +192,8 @@ export class UserService {
   }
 
   async resetPassword(token: string, newPassword: string): Promise<User> {
-    const user = await this.userRepository.findOne({ 
-      where: { passwordResetToken: token }
+    const user = await this.userRepository.findOne({
+      where: { passwordResetToken: token },
     });
 
     if (!user) {
@@ -169,64 +213,71 @@ export class UserService {
     return this.userRepository.save(user);
   }
 
-  async toggle2FA(userId: string, enable: boolean): Promise<User> {
-  const user = await this.findOne(userId);
-  
-  user.twoFactorEnabled = enable;
-  
-  // Clear any existing OTP data when disabling 2FA
-  if (!enable) { // @ts-ignore
-    user.otpCode = null; // @ts-ignore
-    user.otpExpires = null;
+  async toggle2FA(userId: string, enable: boolean, password: string): Promise<User> {
+    const user = await this.findOne(userId);
+    console.log(user);
+    // verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    console.log(isPasswordValid);
+    if (!isPasswordValid) throw new UnauthorizedException('Incorrect Password');
+
+    user.twoFactorEnabled = enable;
+
+    // Clear any existing OTP data when disabling 2FA
+    if (!enable) {
+      // @ts-ignore
+      user.otpCode = null; // @ts-ignore
+      user.otpExpires = null;
+    }
+
+    return this.userRepository.save(user);
   }
-  
-  return this.userRepository.save(user);
-}
 
-async setOTPCode(userId: string): Promise<string> {
-  const user = await this.findOne(userId);
-  
-  // Generate 6-digit OTP
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-  
-  // Set expiry to 2 minutes from now
-  const otpExpires = new Date();
-  otpExpires.setMinutes(otpExpires.getMinutes() + 2);
-  
-  user.otpCode = await bcrypt.hash(otpCode, 10);
-  user.otpExpires = otpExpires;
-  
-  await this.userRepository.save(user);
-  return otpCode;
-}
+  async setOTPCode(userId: string): Promise<string> {
+    const user = await this.findOne(userId);
 
-async verifyOTP(email: string, otpCode: string): Promise<User | null> {
-  const user = await this.findByEmail(email);
+    // Generate 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-  // compare otpCode with hashed otpCode
-  if (user && user.otpCode) {
-    const isMatch = await bcrypt.compare(otpCode, user.otpCode);
-    if (!isMatch) {
+    // Set expiry to 2 minutes from now
+    const otpExpires = new Date();
+    otpExpires.setMinutes(otpExpires.getMinutes() + 2);
+
+    user.otpCode = await bcrypt.hash(otpCode, 10);
+    user.otpExpires = otpExpires;
+
+    await this.userRepository.save(user);
+    return otpCode;
+  }
+
+  async verifyOTP(email: string, otpCode: string): Promise<User | null> {
+    const user = await this.findByEmail(email);
+
+    // compare otpCode with hashed otpCode
+    if (user && user.otpCode) {
+      const isMatch = await bcrypt.compare(otpCode, user.otpCode);
+      if (!isMatch) {
+        return null;
+      }
+    } else {
       return null;
     }
-  } else {
-    return null;
-  }
-  
-  // Check if OTP has expired
-  if (user.otpExpires < new Date()) {
-    return null;
-  }
-  
-  return user;
-}
 
-async clearOTP(userId: string): Promise<void> {
-  await this.userRepository.update(userId, { // @ts-ignore
-    otpCode: null, // @ts-ignore
-    otpExpires: null,
-  });
-}
+    // Check if OTP has expired
+    if (user.otpExpires < new Date()) {
+      return null;
+    }
+
+    return user;
+  }
+
+  async clearOTP(userId: string): Promise<void> {
+    await this.userRepository.update(userId, {
+      // @ts-ignore
+      otpCode: null, // @ts-ignore
+      otpExpires: null,
+    });
+  }
 
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);
@@ -245,20 +296,20 @@ async clearOTP(userId: string): Promise<void> {
 
     // Get or create tags
     const tags = await this.tagService.findOrCreateTags(tagNames);
-    
+
     // Replace all tags
     user.tags = tags;
-    
+
     // Mark as not new user after setting tags
     if (user.new_user) {
       user.new_user = false;
     }
 
     const updatedUser = await this.userRepository.save(user);
-    
+
     // Invalidate cache
     // await this.cacheService.invalidateUserCache(userId);
-    
+
     return updatedUser;
   }
 
@@ -273,5 +324,21 @@ async clearOTP(userId: string): Promise<void> {
     }
 
     return user.tags;
+  }
+
+  async findUserRooms(userId: string): Promise<Room[]> {
+    return this.roomService.findUserRooms(userId);
+  }
+
+  async findJoinedRooms(userId: string): Promise<Room[]> {
+    return this.roomService.findJoinedRooms(userId);
+  }
+
+  async findAllUserRooms(userId: string): Promise<{
+    createdRooms: Room[];
+    joinedRooms: Room[];
+    totalRooms: number;
+  }> {
+    return this.roomService.findAllUserRooms(userId);
   }
 }

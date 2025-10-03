@@ -245,9 +245,9 @@ export class AuthService {
   }
 
   async toggle2FA(userId: string, toggle2FADto: Toggle2FADto) {
-    const { enable } = toggle2FADto;
+    const { enable, password } = toggle2FADto;
 
-    const user = await this.userService.toggle2FA(userId, enable);
+    const user = await this.userService.toggle2FA(userId, enable, password);
 
     return {
       success: true,

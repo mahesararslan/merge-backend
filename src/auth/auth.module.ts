@@ -20,6 +20,7 @@ import { MailModule } from 'src/mail/mail.module';
 import { MailService } from 'src/mail/mail.service';
 import { UserModule } from 'src/user/user.module';
 import { TagModule } from 'src/tag/tag.module';
+import { RoomModule } from 'src/room/room.module';
 
 @Module({
   imports: [
@@ -29,7 +30,8 @@ import { TagModule } from 'src/tag/tag.module';
     ConfigModule.forFeature(refreshJwtConfig),
     ConfigModule.forFeature(googleOauthConfig),
     UserModule,
-    TagModule
+    TagModule,
+    RoomModule
   ],
   controllers: [AuthController],
   providers: [

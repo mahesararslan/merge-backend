@@ -1,4 +1,3 @@
-
 import {
   Controller,
   Get,
@@ -14,7 +13,6 @@ import {
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { UserRole } from 'src/entities/user.entity';
 import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
@@ -38,19 +36,31 @@ export class UserController {
   }
 
   @Patch('/update')
-  updateProfile(
-    @Req() req,
-    @Body() updateUserDto: UpdateUserDto,
-  ) {
+  updateProfile(@Req() req, @Body() updateUserDto: UpdateUserDto) {
     return this.userService.update(req.user.id, updateUserDto);
   }
 
   @Patch('/change-password')
-  changePassword(
-    @Req() req,
-    @Body() updatePasswordDto: UpdatePasswordDto,
-  ) {
+  changePassword(@Req() req, @Body() updatePasswordDto: UpdatePasswordDto) {
     return this.userService.updatePassword(req.user.id, updatePasswordDto);
+  }
+
+  @Get('my-rooms')
+  @UseInterceptors(CacheInterceptor)
+  getUserRooms(@Req() req) {
+    return this.userService.findUserRooms(req.user.id);
+  }
+
+  @Get('joined-rooms')
+  @UseInterceptors(CacheInterceptor)
+  getJoinedRooms(@Req() req) {
+    return this.userService.findJoinedRooms(req.user.id);
+  }
+
+  @Get('all-rooms')
+  @UseInterceptors(CacheInterceptor)
+  getAllUserRooms(@Req() req) {
+    return this.userService.findAllUserRooms(req.user.id);
   }
 
   @Get('/tags')
@@ -60,10 +70,7 @@ export class UserController {
   }
 
   @Patch('/tags')
-  setUserTags(
-    @Req() req,
-    @Body() userTagsDto: UserTagsDto,
-  ) {
+  setUserTags(@Req() req, @Body() userTagsDto: UserTagsDto) {
     return this.userService.setUserTags(req.user.id, userTagsDto.tagNames);
   }
 
@@ -78,11 +85,4 @@ export class UserController {
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.getProfileWithID(id);
   }
-  
-  // add route for getting all users of a specific room
-  // @Get('/room/:roomId/users')
-  // getUsersByRoom(@Param('roomId') roomId: string) {
-  //   return this.userService.findUsersByRoom(roomId);
-  // }
-
 }

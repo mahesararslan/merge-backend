@@ -42,14 +42,6 @@ export class RoomController {
     return this.roomService.findAll(page, limit, search);
   }
 
-  // Get user's own rooms
-  // @Get('my-rooms')
-  // @UseInterceptors(CacheInterceptor)
-  // @CacheTTL(300)
-  // getUserRooms(@Req() req) {
-  //   return this.roomService.findUserRooms(req.user.id);
-  // }
-
   // Search rooms by tags
   // @Get('search-by-tags')
   // @UseInterceptors(CacheInterceptor)
@@ -92,5 +84,18 @@ export class RoomController {
   @Delete(':id')
   remove(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
     return this.roomService.delete(id, req.user.id);
+  }
+
+  // Leave room
+  @Delete(':id/leave')
+  leaveRoom(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
+    return this.roomService.leaveRoom(id, req.user.id);
+  }
+
+  // Get room members
+  @Get(':id/members')
+  @UseInterceptors(CacheInterceptor)
+  getRoomMembers(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
+    return this.roomService.getRoomMembers(id, req.user.id);
   }
 }

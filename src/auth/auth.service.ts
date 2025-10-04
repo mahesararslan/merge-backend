@@ -127,6 +127,7 @@ export class AuthService {
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
     try {
+      forgotPasswordDto.email = forgotPasswordDto.email.toLowerCase();
       const user = await this.userService.setPasswordResetToken(
         forgotPasswordDto.email,
       );

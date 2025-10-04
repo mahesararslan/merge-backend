@@ -12,7 +12,7 @@ export class MailService {
 
   private initializeSendGrid() {
     const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
-    console.log("SendGrid API Key:", apiKey); // Debugging line
+    // console.log("SendGrid API Key:", apiKey); // Debugging line
     
     if (!apiKey) {
       this.logger.error('SendGrid API key is not configured');

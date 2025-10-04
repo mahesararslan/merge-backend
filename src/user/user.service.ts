@@ -214,11 +214,10 @@ export class UserService {
   }
 
   async toggle2FA(userId: string, enable: boolean, password: string): Promise<User> {
-    const user = await this.findOne(userId);
-    console.log(user);
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
     // verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    console.log(isPasswordValid);
     if (!isPasswordValid) throw new UnauthorizedException('Incorrect Password');
 
     user.twoFactorEnabled = enable;

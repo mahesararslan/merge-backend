@@ -107,7 +107,7 @@ export class AuthController {
   @Get("/google/callback")
   async googleCallback(@Req() req, @Res() res) {
     const response = await this.authService.login(req.user.id); 
-    res.redirect(`${process.env.FRONTEND_URL}?token=${response.token}&refreshToken=${response.refreshToken}`);
+    res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${response.token}&refreshToken=${response.refreshToken}`);
   }
 
   @HttpCode(HttpStatus.OK)

@@ -213,7 +213,11 @@ export class UserService {
     return this.userRepository.save(user);
   }
 
-  async toggle2FA(userId: string, enable: boolean, password: string): Promise<User> {
+  async toggle2FA(
+    userId: string,
+    enable: boolean,
+    password: string,
+  ): Promise<User> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     // verify password
@@ -339,5 +343,9 @@ export class UserService {
     totalRooms: number;
   }> {
     return this.roomService.findAllUserRooms(userId);
+  }
+
+  async updateFcmToken(userId: string, fcmToken: string): Promise<void> {
+    await this.userRepository.update(userId, { fcmToken });
   }
 }

@@ -81,6 +81,14 @@ export class UserController {
     return this.tagService.findAll();
   }
 
+  @Patch('/fcm-token')
+updateFcmToken(
+  @Req() req,
+  @Body() updateFcmTokenDto: { fcmToken: string },
+) {
+  return this.userService.updateFcmToken(req.user.id, updateFcmTokenDto.fcmToken);
+}
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.getProfileWithID(id);

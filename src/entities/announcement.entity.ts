@@ -1,9 +1,11 @@
+// src/entities/announcement.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
   CreateDateColumn,
+  JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
@@ -13,16 +15,18 @@ export class Announcement {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Room)
+  @ManyToOne(() => Room, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'roomId' })
   room: Room;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { nullable: false })
+  @JoinColumn({ name: 'authorId' })
   author: User;
 
-  @Column()
+  @Column({ type: 'varchar', length: 100 })
   title: string;
 
-  @Column()
+  @Column({ type: 'text' })
   content: string;
 
   @CreateDateColumn()

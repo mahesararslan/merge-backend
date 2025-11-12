@@ -59,6 +59,9 @@ export class User {
   googleAccount: boolean;
 
   @Column({ nullable: true })
+  fcmToken: string; // Add this field for FCM token
+
+  @Column({ nullable: true })
   hashedRefreshToken: string; 
 
   @Column({ nullable: true })

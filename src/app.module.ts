@@ -13,6 +13,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TagModule } from './tag/tag.module';
 import { RoomModule } from './room/room.module';
+import { AnnouncementModule } from './announcement/announcement.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { RoomModule } from './room/room.module';
     MailModule,
     TagModule,
     RoomModule,
+    AnnouncementModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,3 +1,4 @@
+// src/entities/folder.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -5,11 +6,16 @@ import {
   ManyToOne,
   OneToMany,
   CreateDateColumn,
+  UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
+import { Note } from './note.entity';
+import { File } from './file.entity';
 
 @Entity('folders')
+@Index(['owner', 'room', 'parentFolder'])
 export class Folder {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -23,12 +29,22 @@ export class Folder {
   @ManyToOne(() => Room, { nullable: true })
   room: Room;
 
-  @ManyToOne(() => Folder, { nullable: true })
-  parent: Folder;
+  // Self-referencing for nested folders
+  @ManyToOne(() => Folder, folder => folder.subfolders, { nullable: true })
+  parentFolder: Folder;
 
-  @OneToMany(() => Folder, (folder) => folder.parent)
-  children: Folder[];
+  @OneToMany(() => Folder, folder => folder.parentFolder)
+  subfolders: Folder[];
+
+  @OneToMany(() => Note, note => note.folder)
+  notes: Note[];
+
+  @OneToMany(() => File, file => file.folder)
+  files: File[];
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

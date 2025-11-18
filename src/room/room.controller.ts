@@ -42,6 +42,21 @@ export class RoomController {
     return this.roomService.findAll(page, limit, search);
   }
 
+  // get rooms for user feed which are according to his interests(tags)
+  @Get('feed')
+@UseInterceptors(CacheInterceptor)
+getUserFeed(
+  @Req() req,
+  @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+  @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+  @Query('includeJoined') includeJoined?: string,
+) {
+  // Convert string query param to boolean, default to false
+  const shouldIncludeJoined = includeJoined === 'true';
+  
+  return this.roomService.getUserFeed(req.user.id, page, limit, shouldIncludeJoined);
+}
+
   // Search rooms by tags
   // @Get('search-by-tags')
   // @UseInterceptors(CacheInterceptor)

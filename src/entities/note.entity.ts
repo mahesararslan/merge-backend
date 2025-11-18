@@ -7,7 +7,6 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { User } from './user.entity';
-import { Room } from './room.entity';
 import { Folder } from './folder.entity';
 
 @Entity('notes')
@@ -17,9 +16,6 @@ export class Note {
 
   @ManyToOne(() => User)
   owner: User;
-
-  @ManyToOne(() => Room)
-  room: Room;
 
   @ManyToOne(() => Folder, { nullable: true })
   folder: Folder;

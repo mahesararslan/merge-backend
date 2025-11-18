@@ -1,5 +1,10 @@
 // src/room/room.service.ts
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { Room } from '../entities/room.entity';
@@ -33,65 +38,70 @@ export class RoomService {
   }
 
   async create(createRoomDto: CreateRoomDto, adminId: string): Promise<Room> {
-  const admin = await this.userRepository.findOne({ where: { id: adminId } });
-  if (!admin) {
-    throw new NotFoundException('Admin user not found');
-  }
-
-  // Generate unique room code
-  const roomCode = await this.generateUniqueRoomCode(); // Extract to separate method
-
-  // Handle tags if provided
-  const tags: Tag[] = createRoomDto.tagNames && createRoomDto.tagNames.length > 0
-    ? await this.tagService.findOrCreateTags(createRoomDto.tagNames)
-    : [];
-
-  const room = this.roomRepository.create({
-    title: createRoomDto.title,
-    description: createRoomDto.description,
-    isPublic: createRoomDto.isPublic ?? true,
-    roomCode,
-    admin,
-    tags,
-  });
-
-  return this.roomRepository.save(room);
-}
-
-// Extract room code generation to separate method
-private async generateUniqueRoomCode(): Promise<string> {
-  let roomCode: string;
-  let isUnique = false;
-  let attempts = 0;
-  const maxAttempts = 10;
-
-  while (!isUnique && attempts < maxAttempts) {
-    roomCode = this.generateRoomCode();
-    const existingRoom = await this.roomRepository.findOne({ 
-      where: { roomCode } 
-    });
-    
-    if (!existingRoom) {
-      isUnique = true;
+    const admin = await this.userRepository.findOne({ where: { id: adminId } });
+    if (!admin) {
+      throw new NotFoundException('Admin user not found');
     }
-    attempts++;
+
+    // Generate unique room code
+    const roomCode = await this.generateUniqueRoomCode(); // Extract to separate method
+
+    // Handle tags if provided
+    const tags: Tag[] =
+      createRoomDto.tagNames && createRoomDto.tagNames.length > 0
+        ? await this.tagService.findOrCreateTags(createRoomDto.tagNames)
+        : [];
+
+    const room = this.roomRepository.create({
+      title: createRoomDto.title,
+      description: createRoomDto.description,
+      isPublic: createRoomDto.isPublic ?? true,
+      roomCode,
+      admin,
+      tags,
+    });
+
+    return this.roomRepository.save(room);
   }
 
-  if (!isUnique) {
-    throw new ConflictException('Unable to generate unique room code');
+  // Extract room code generation to separate method
+  private async generateUniqueRoomCode(): Promise<string> {
+    let roomCode: string;
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (!isUnique && attempts < maxAttempts) {
+      roomCode = this.generateRoomCode();
+      const existingRoom = await this.roomRepository.findOne({
+        where: { roomCode },
+      });
+
+      if (!existingRoom) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
+    if (!isUnique) {
+      throw new ConflictException('Unable to generate unique room code');
+    }
+
+    return roomCode!; // Non-null assertion since we know it's assigned if we reach here
   }
 
-  return roomCode!; // Non-null assertion since we know it's assigned if we reach here
-}
-
-  async findAll(page: number = 1, limit: number = 10, search?: string): Promise<{
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+    search?: string,
+  ): Promise<{
     rooms: Room[];
     total: number;
     totalPages: number;
     currentPage: number;
   }> {
     const skip = (page - 1) * limit;
-    
+
     const queryBuilder = this.roomRepository
       .createQueryBuilder('room')
       .leftJoinAndSelect('room.admin', 'admin')
@@ -101,7 +111,7 @@ private async generateUniqueRoomCode(): Promise<string> {
     if (search) {
       queryBuilder.andWhere(
         '(room.title ILIKE :search OR room.description ILIKE :search)',
-        { search: `%${search}%` }
+        { search: `%${search}%` },
       );
     }
 
@@ -153,7 +163,141 @@ private async generateUniqueRoomCode(): Promise<string> {
     return room;
   }
 
-  async update(id: string, updateRoomDto: UpdateRoomDto, userId: string): Promise<Room> {
+  // Add this method to src/room/room.service.ts
+
+  async getUserFeed(
+    userId: string,
+    page: number = 1,
+    limit: number = 10,
+    includeJoined: boolean = false,
+  ): Promise<{
+    rooms: Room[];
+    total: number;
+    totalPages: number;
+    currentPage: number;
+    userTags: string[];
+    hasPersonalizedFeed: boolean;
+  }> {
+    const skip = (page - 1) * limit;
+
+    // Get user with their interests/tags
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['tags'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const userTagNames = user.tags.map((tag) => tag.name);
+    const hasPersonalizedFeed = userTagNames.length > 0;
+
+    // Get rooms user has joined or created (to exclude if includeJoined is false)
+    const userRoomIds = await this.getUserRoomIds(userId);
+
+    const queryBuilder = this.roomRepository
+      .createQueryBuilder('room')
+      .leftJoinAndSelect('room.admin', 'admin')
+      .leftJoinAndSelect('room.tags', 'tags')
+      .where('room.isPublic = :isPublic', { isPublic: true });
+
+    // Exclude rooms user has already joined/created (unless includeJoined is true)
+    if (!includeJoined && userRoomIds.length > 0) {
+      queryBuilder.andWhere('room.id NOT IN (:...userRoomIds)', { userRoomIds });
+    }
+
+    if (hasPersonalizedFeed) {
+      // Prioritize rooms with matching tags
+      queryBuilder
+        .addSelect(
+          `(
+          SELECT COUNT(*)::int 
+          FROM room_tags rt 
+          INNER JOIN tags t ON rt."tagId" = t.id 
+          WHERE rt."roomId" = room.id 
+          AND t.name = ANY(:userTags)
+        )`,
+          'tag_matches',
+        )
+        .setParameter('userTags', userTagNames)
+        .orderBy('tag_matches', 'DESC')
+        .addOrderBy('room.createdAt', 'DESC');
+    } else {
+      // If user has no interests, show popular rooms or most recent
+      queryBuilder
+        .leftJoin('room_members', 'rm', 'rm."roomId" = room.id')
+        .addSelect('COUNT(rm.id)::int', 'member_count')
+        .groupBy('room.id, admin.id, tags.id')
+        .orderBy('member_count', 'DESC')
+        .addOrderBy('room.createdAt', 'DESC');
+    }
+
+    const [rooms, total] = await queryBuilder
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    // Add additional metadata to each room
+    const roomsWithMetadata = await Promise.all(
+      rooms.map(async (room) => {
+        const memberCount = await this.getRoomMemberCount(room.id);
+        const tagMatches = hasPersonalizedFeed
+          ? room.tags.filter((tag) => userTagNames.includes(tag.name)).length
+          : 0;
+
+        return {
+          ...room,
+          memberCount,
+          tagMatches,
+          isRecommended: tagMatches > 0,
+          joinedByUser: userRoomIds.includes(room.id),
+        };
+      }),
+    );
+
+    return {
+      rooms: roomsWithMetadata,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      userTags: userTagNames,
+      hasPersonalizedFeed,
+    };
+  }
+
+  // Helper method to get user's room IDs (created + joined)
+  private async getUserRoomIds(userId: string): Promise<string[]> {
+    const [createdRooms, joinedRoomMembers] = await Promise.all([
+      this.roomRepository.find({
+        where: { admin: { id: userId } },
+        select: ['id'],
+      }),
+      this.roomMemberRepository.find({
+        where: { user: { id: userId } },
+        relations: ['room'],
+        select: ['room'],
+      }),
+    ]);
+
+    const createdRoomIds = createdRooms.map((room) => room.id);
+    const joinedRoomIds = joinedRoomMembers.map((member) => member.room.id);
+
+    return [...new Set([...createdRoomIds, ...joinedRoomIds])];
+  }
+
+  // Helper method to get room member count
+  private async getRoomMemberCount(roomId: string): Promise<number> {
+    return this.roomMemberRepository.count({
+      where: { room: { id: roomId } },
+    });
+  }
+
+  async update(
+    id: string,
+    updateRoomDto: UpdateRoomDto,
+    userId: string,
+  ): Promise<Room> {
     const room = await this.findOne(id);
 
     // Check if user is the admin of the room
@@ -163,14 +307,18 @@ private async generateUniqueRoomCode(): Promise<string> {
 
     // Handle tags update if provided
     if (updateRoomDto.tagNames) {
-      const tags = await this.tagService.findOrCreateTags(updateRoomDto.tagNames);
+      const tags = await this.tagService.findOrCreateTags(
+        updateRoomDto.tagNames,
+      );
       room.tags = tags;
     }
 
     // Update other fields
     if (updateRoomDto.title) room.title = updateRoomDto.title;
-    if (updateRoomDto.description !== undefined) room.description = updateRoomDto.description;
-    if (updateRoomDto.isPublic !== undefined) room.isPublic = updateRoomDto.isPublic;
+    if (updateRoomDto.description !== undefined)
+      room.description = updateRoomDto.description;
+    if (updateRoomDto.isPublic !== undefined)
+      room.isPublic = updateRoomDto.isPublic;
 
     return this.roomRepository.save(room);
   }
@@ -189,24 +337,24 @@ private async generateUniqueRoomCode(): Promise<string> {
   async joinRoom(roomCode: string, userId: string) {
     const room = await this.findByRoomCode(roomCode);
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    
+
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
     // Check if user is already a member
     const existingMember = await this.roomMemberRepository.findOne({
-      where: { 
-        room: { id: room.id }, 
-        user: { id: userId } 
-      }
+      where: {
+        room: { id: room.id },
+        user: { id: userId },
+      },
     });
 
     if (existingMember) {
       return {
         success: true,
         message: `You are already a member of ${room.title}`,
-        room
+        room,
       };
     }
 
@@ -215,14 +363,14 @@ private async generateUniqueRoomCode(): Promise<string> {
       return {
         success: true,
         message: `You are the admin of ${room.title}`,
-        room
+        room,
       };
     }
 
     // Create membership
     const roomMember = this.roomMemberRepository.create({
       room,
-      user
+      user,
     });
 
     await this.roomMemberRepository.save(roomMember);
@@ -230,7 +378,7 @@ private async generateUniqueRoomCode(): Promise<string> {
     return {
       success: true,
       message: `Successfully joined ${room.title}`,
-      room
+      room,
     };
   }
 
@@ -238,10 +386,10 @@ private async generateUniqueRoomCode(): Promise<string> {
     const roomMembers = await this.roomMemberRepository.find({
       where: { user: { id: userId } },
       relations: ['room', 'room.admin', 'room.tags'],
-      order: { joinedAt: 'DESC' }
+      order: { joinedAt: 'DESC' },
     });
 
-    return roomMembers.map(member => member.room);
+    return roomMembers.map((member) => member.room);
   }
 
   async findAllUserRooms(userId: string): Promise<{
@@ -251,13 +399,13 @@ private async generateUniqueRoomCode(): Promise<string> {
   }> {
     const [createdRooms, joinedRooms] = await Promise.all([
       this.findUserRooms(userId),
-      this.findJoinedRooms(userId)
+      this.findJoinedRooms(userId),
     ]);
 
     return {
       createdRooms,
       joinedRooms,
-      totalRooms: createdRooms.length + joinedRooms.length
+      totalRooms: createdRooms.length + joinedRooms.length,
     };
   }
 
@@ -266,14 +414,16 @@ private async generateUniqueRoomCode(): Promise<string> {
 
     // Check if user is the admin
     if (room.admin.id === userId) {
-      throw new ForbiddenException('Room admin cannot leave the room. Transfer ownership or delete the room instead.');
+      throw new ForbiddenException(
+        'Room admin cannot leave the room. Transfer ownership or delete the room instead.',
+      );
     }
 
     const roomMember = await this.roomMemberRepository.findOne({
-      where: { 
-        room: { id: roomId }, 
-        user: { id: userId } 
-      }
+      where: {
+        room: { id: roomId },
+        user: { id: userId },
+      },
     });
 
     if (!roomMember) {
@@ -287,22 +437,25 @@ private async generateUniqueRoomCode(): Promise<string> {
     const room = await this.findOne(roomId);
 
     // Check if user has access to view members (admin or member)
-    const hasAccess = room.admin.id === userId || 
-      await this.roomMemberRepository.findOne({
-        where: { 
-          room: { id: roomId }, 
-          user: { id: userId } 
-        }
-      });
+    const hasAccess =
+      room.admin.id === userId ||
+      (await this.roomMemberRepository.findOne({
+        where: {
+          room: { id: roomId },
+          user: { id: userId },
+        },
+      }));
 
     if (!hasAccess && !room.isPublic) {
-      throw new ForbiddenException('You do not have access to view this room\'s members');
+      throw new ForbiddenException(
+        "You do not have access to view this room's members",
+      );
     }
 
     return this.roomMemberRepository.find({
       where: { room: { id: roomId } },
       relations: ['user'],
-      order: { joinedAt: 'ASC' }
+      order: { joinedAt: 'ASC' },
     });
   }
 

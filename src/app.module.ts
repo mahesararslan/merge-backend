@@ -13,6 +13,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TagModule } from './tag/tag.module';
 import { RoomModule } from './room/room.module';
+import { NoteModule } from './note/note.module';
+import { FolderModule } from './folder/folder.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { RoomModule } from './room/room.module';
     MailModule,
     TagModule,
     RoomModule,
+    NoteModule,
+    FolderModule,
   ],
   controllers: [AppController],
   providers: [

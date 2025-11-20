@@ -1,9 +1,26 @@
+// src/file/file.module.ts
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { FileService } from './file.service';
 import { FileController } from './file.controller';
+import { File } from '../entities/file.entity';
+import { User } from '../entities/user.entity';
+import { Room } from '../entities/room.entity';
+import { Folder } from '../entities/folder.entity';
+import { RoomMember } from '../entities/room-member.entity';
 
 @Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      File,
+      User,
+      Room,
+      Folder,
+      RoomMember,
+    ]),
+  ],
   controllers: [FileController],
   providers: [FileService],
+  exports: [FileService],
 })
 export class FileModule {}

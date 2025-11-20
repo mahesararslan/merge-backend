@@ -6,6 +6,8 @@ import { NoteController } from './note.controller';
 import { Note } from '../entities/note.entity';
 import { User } from '../entities/user.entity';
 import { Folder } from '../entities/folder.entity';
+import { Room } from '../entities/room.entity';
+import { RoomMember } from '../entities/room-member.entity';
 
 @Module({
   imports: [
@@ -13,6 +15,8 @@ import { Folder } from '../entities/folder.entity';
       Note,
       User,
       Folder,
+      Room,          
+      RoomMember,    
     ]),
   ],
   controllers: [NoteController],

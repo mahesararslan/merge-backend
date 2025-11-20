@@ -15,6 +15,7 @@ import { TagModule } from './tag/tag.module';
 import { RoomModule } from './room/room.module';
 import { NoteModule } from './note/note.module';
 import { FolderModule } from './folder/folder.module';
+import { FileModule } from './file/file.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { FolderModule } from './folder/folder.module';
     RoomModule,
     NoteModule,
     FolderModule,
+    FileModule,
   ],
   controllers: [AppController],
   providers: [

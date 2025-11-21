@@ -2,12 +2,13 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
-import { Folder } from '../entities/folder.entity';
+import { Folder, FolderType } from '../entities/folder.entity';
 import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { Note } from '../entities/note.entity';
 import { File } from '../entities/file.entity';
 import { RoomMember } from '../entities/room-member.entity';
+import { RoomPermissions } from '../entities/room-permissions.entity';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
 import { QueryFolderDto } from './dto/query-folder.dto';
@@ -27,6 +28,8 @@ export class FolderService {
     private fileRepository: Repository<File>,
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
+    @InjectRepository(RoomPermissions)
+    private roomPermissionsRepository: Repository<RoomPermissions>,
   ) {}
 
   async create(createFolderDto: CreateFolderDto, userId: string): Promise<Folder> {
@@ -41,8 +44,18 @@ export class FolderService {
     let room = null;
     let parentFolder = null;
 
-    // Validate room if provided
-    if (createFolderDto.roomId) {
+    // Validate based on folder type
+    if (createFolderDto.type === FolderType.NOTES) {
+      // Notes folder - user specific, no room required
+      if (createFolderDto.roomId) {
+        throw new ConflictException('Notes folders cannot be associated with rooms');
+      }
+    } else if (createFolderDto.type === FolderType.ROOM) {
+      // Room folder - room required
+      if (!createFolderDto.roomId) {
+        throw new ConflictException('Room ID is required for room folders');
+      }
+
       room = await this.roomRepository.findOne({
         where: { id: createFolderDto.roomId },
         relations: ['admin'],
@@ -52,15 +65,10 @@ export class FolderService {
         throw new NotFoundException('Room not found');
       }
 
-      // Check if user is admin or member
-      const canAccess = await this.canUserAccessRoom(userId, createFolderDto.roomId);
-      if (!canAccess) {
-        throw new ForbiddenException('You do not have access to this room');
-      }
-
-      // Only admin can create folders in room
-      if (room.admin.id !== userId) {
-        throw new ForbiddenException('Only room admin can create folders');
+      // Check if user has permission to create folders in this room
+      const canCreateFolder = await this.canUserCreateFoldersInRoom(userId, createFolderDto.roomId);
+      if (!canCreateFolder) {
+        throw new ForbiddenException('You do not have permission to create folders in this room');
       }
     }
 
@@ -75,16 +83,19 @@ export class FolderService {
         throw new NotFoundException('Parent folder not found');
       }
 
+      // Check type consistency
+      if (parentFolder.type !== createFolderDto.type) {
+        throw new ConflictException('Parent folder must be of the same type');
+      }
+
       // Check access to parent folder
-      if (!createFolderDto.roomId) {
-        // Personal folder - user must own parent
+      if (createFolderDto.type === FolderType.NOTES) {
         if (parentFolder.owner.id !== userId) {
-          throw new ForbiddenException('You can only create subfolders in your own folders');
+          throw new ForbiddenException('You can only create subfolders in your own note folders');
         }
       } else {
-        // Room folder - parent must be in same room
         if (parentFolder.room?.id !== createFolderDto.roomId) {
-          throw new ForbiddenException('Parent folder must be in the same room');
+          throw new ConflictException('Parent folder must be in the same room');
         }
       }
     }
@@ -92,14 +103,15 @@ export class FolderService {
     // Check for duplicate names at the same level
     const whereClause: any = {
       name: createFolderDto.name,
-      owner: { id: userId },
+      type: createFolderDto.type,
       parentFolder: createFolderDto.parentFolderId ? { id: createFolderDto.parentFolderId } : IsNull(),
     };
 
-    if (createFolderDto.roomId) {
-      whereClause.room = { id: createFolderDto.roomId };
-    } else {
+    if (createFolderDto.type === FolderType.NOTES) {
+      whereClause.owner = { id: userId };
       whereClause.room = IsNull();
+    } else {
+      whereClause.room = { id: createFolderDto.roomId };
     }
 
     const existingFolder = await this.folderRepository.findOne({ where: whereClause });
@@ -110,6 +122,7 @@ export class FolderService {
 
     const folder = new Folder();
     folder.name = createFolderDto.name;
+    folder.type = createFolderDto.type;
     folder.owner = user;
     folder.room = room;
     folder.parentFolder = parentFolder;
@@ -124,7 +137,7 @@ export class FolderService {
     currentPage: number;
     breadcrumb?: any[];
   }> {
-    const { page, limit, sortBy, sortOrder, search, roomId, parentFolderId } = queryDto;
+    const { page, limit, sortBy, sortOrder, search, type, roomId, parentFolderId } = queryDto;
     const skip = (page - 1) * limit;
 
     let queryBuilder = this.folderRepository
@@ -139,17 +152,28 @@ export class FolderService {
       .addSelect('COUNT(DISTINCT files.id)', 'fileCount')
       .addSelect('COUNT(DISTINCT subfolders.id)', 'subfolderCount');
 
-    // Access control based on room
-    if (roomId) {
-      // Check room access
+    // Access control based on folder type
+    if (type === FolderType.NOTES || (!type && !roomId)) {
+      // Notes folders - user specific
+      queryBuilder.andWhere('folder.type = :noteType AND folder.owner.id = :userId', {
+        noteType: FolderType.NOTES,
+        userId,
+      });
+    } else if (type === FolderType.ROOM || roomId) {
+      // Room folders - check room access
+      if (!roomId) {
+        throw new ConflictException('Room ID is required for room folders');
+      }
+
       const canAccess = await this.canUserAccessRoom(userId, roomId);
       if (!canAccess) {
         throw new ForbiddenException('You do not have access to this room');
       }
-      queryBuilder.andWhere('folder.room.id = :roomId', { roomId });
-    } else {
-      // Personal folders only
-      queryBuilder.andWhere('folder.owner.id = :userId AND folder.room IS NULL', { userId });
+
+      queryBuilder.andWhere('folder.type = :roomType AND folder.room.id = :roomId', {
+        roomType: FolderType.ROOM,
+        roomId,
+      });
     }
 
     // Filter by parent folder
@@ -174,7 +198,7 @@ export class FolderService {
 
     const [foldersWithCount, total] = await Promise.all([
       queryBuilder.getRawAndEntities(),
-      this.getFolderCount(userId, roomId, parentFolderId, search),
+      this.getFolderCount(userId, type, roomId, parentFolderId, search),
     ]);
 
     // Format the response
@@ -263,23 +287,10 @@ export class FolderService {
       throw new NotFoundException(`Folder with ID ${id} not found`);
     }
 
-    // Check access
-    const canAccess = await this.canUserAccessFolder(folder, userId);
-    if (!canAccess) {
-      throw new ForbiddenException('You do not have access to this folder');
-    }
-
-    // Only owner or room admin can update
-    if (folder.room) {
-      const room = await this.roomRepository.findOne({
-        where: { id: folder.room.id },
-        relations: ['admin'],
-      });
-      if (room.admin.id !== userId) {
-        throw new ForbiddenException('Only room admin can update room folders');
-      }
-    } else if (folder.owner.id !== userId) {
-      throw new ForbiddenException('You can only update your own folders');
+    // Check access and permissions
+    const canUpdate = await this.canUserUpdateFolder(folder, userId);
+    if (!canUpdate) {
+      throw new ForbiddenException('You do not have permission to update this folder');
     }
 
     // Handle parent folder change
@@ -297,6 +308,11 @@ export class FolderService {
 
         if (!newParent) {
           throw new NotFoundException('Parent folder not found');
+        }
+
+        // Check type consistency
+        if (newParent.type !== folder.type) {
+          throw new ConflictException('Cannot move folder to a different type folder');
         }
 
         // Check if new parent is a descendant
@@ -319,7 +335,15 @@ export class FolderService {
     return this.folderRepository.save(folder);
   }
 
-  async remove(id: string, userId: string): Promise<{ deletedFolder: Folder; movedItemsCount: number }> {
+  async remove(id: string, userId: string): Promise<{ 
+    deletedFolder: Folder; 
+    deletedItemsCount: { 
+      subfolders: number; 
+      notes: number; 
+      files: number; 
+      total: number; 
+    } 
+  }> {
     const folder = await this.folderRepository.findOne({
       where: { id },
       relations: ['owner', 'room', 'parentFolder', 'notes', 'files', 'subfolders'],
@@ -329,60 +353,56 @@ export class FolderService {
       throw new NotFoundException(`Folder with ID ${id} not found`);
     }
 
-    // Check access
-    const canAccess = await this.canUserAccessFolder(folder, userId);
-    if (!canAccess) {
-      throw new ForbiddenException('You do not have access to this folder');
+    // Check access and permissions
+    const canDelete = await this.canUserDeleteFolder(folder, userId);
+    if (!canDelete) {
+      throw new ForbiddenException('You do not have permission to delete this folder');
     }
 
-    // Only owner or room admin can delete
-    if (folder.room) {
-      const room = await this.roomRepository.findOne({
-        where: { id: folder.room.id },
-        relations: ['admin'],
-      });
-      if (room.admin.id !== userId) {
-        throw new ForbiddenException('Only room admin can delete room folders');
-      }
-    } else if (folder.owner.id !== userId) {
-      throw new ForbiddenException('You can only delete your own folders');
-    }
+    // Recursively delete all contents
+    const deletedItemsCount = await this.recursivelyDeleteFolderContents(folder);
 
-    // Move all items to parent folder or root
-    const parentFolder = folder.parentFolder;
-    let movedItemsCount = 0;
-
-    // Move subfolders
-    for (const subfolder of folder.subfolders) {
-      subfolder.parentFolder = parentFolder;
-      await this.folderRepository.save(subfolder);
-      movedItemsCount++;
-    }
-
-    // Move notes
-    for (const note of folder.notes) {
-      note.folder = parentFolder;
-      await this.noteRepository.save(note);
-      movedItemsCount++;
-    }
-
-    // Move files
-    for (const file of folder.files) {
-      file.folder = parentFolder;
-      await this.fileRepository.save(file);
-      movedItemsCount++;
-    }
-
-    // Delete the folder
+    // Delete the folder itself
     await this.folderRepository.remove(folder);
 
     return {
       deletedFolder: folder,
-      movedItemsCount,
+      deletedItemsCount: {
+        subfolders: deletedItemsCount.subfolders,
+        notes: deletedItemsCount.notes,
+        files: deletedItemsCount.files,
+        total: deletedItemsCount.subfolders + deletedItemsCount.notes + deletedItemsCount.files,
+      },
     };
   }
 
-  // Helper methods
+  // Permission helper methods
+  private async canUserCreateFoldersInRoom(userId: string, roomId: string): Promise<boolean> {
+    const room = await this.roomRepository.findOne({
+      where: { id: roomId },
+      relations: ['admin'],
+    });
+
+    if (!room) return false;
+
+    // Room admin can always create folders
+    if (room.admin.id === userId) return true;
+
+    // Check if user is a member with file permissions
+    const member = await this.roomMemberRepository.findOne({
+      where: { room: { id: roomId }, user: { id: userId } },
+    });
+
+    if (!member) return false;
+
+    // Check permissions
+    const permissions = await this.roomPermissionsRepository.findOne({
+      where: { member: { id: member.id } },
+    });
+
+    return permissions?.can_add_files || false;
+  }
+
   private async canUserAccessRoom(userId: string, roomId: string): Promise<boolean> {
     const room = await this.roomRepository.findOne({
       where: { id: roomId },
@@ -400,27 +420,49 @@ export class FolderService {
   }
 
   private async canUserAccessFolder(folder: Folder, userId: string): Promise<boolean> {
-    if (!folder.room) {
-      // Personal folder
+    if (folder.type === FolderType.NOTES) {
       return folder.owner.id === userId;
     } else {
-      // Room folder
       return this.canUserAccessRoom(userId, folder.room.id);
     }
   }
 
+  private async canUserUpdateFolder(folder: Folder, userId: string): Promise<boolean> {
+    if (folder.type === FolderType.NOTES) {
+      return folder.owner.id === userId;
+    } else {
+      return this.canUserCreateFoldersInRoom(userId, folder.room.id);
+    }
+  }
+
+  private async canUserDeleteFolder(folder: Folder, userId: string): Promise<boolean> {
+    if (folder.type === FolderType.NOTES) {
+      return folder.owner.id === userId;
+    } else {
+      return this.canUserCreateFoldersInRoom(userId, folder.room.id);
+    }
+  }
+
+  // Other helper methods remain the same
   private async getFolderCount(
     userId: string,
+    type?: FolderType,
     roomId?: string,
     parentFolderId?: string,
     search?: string
   ): Promise<number> {
     let queryBuilder = this.folderRepository.createQueryBuilder('folder');
 
-    if (roomId) {
-      queryBuilder.andWhere('folder.room.id = :roomId', { roomId });
-    } else {
-      queryBuilder.andWhere('folder.owner.id = :userId AND folder.room IS NULL', { userId });
+    if (type === FolderType.NOTES || (!type && !roomId)) {
+      queryBuilder.andWhere('folder.type = :noteType AND folder.owner.id = :userId', {
+        noteType: FolderType.NOTES,
+        userId,
+      });
+    } else if (type === FolderType.ROOM || roomId) {
+      queryBuilder.andWhere('folder.type = :roomType AND folder.room.id = :roomId', {
+        roomType: FolderType.ROOM,
+        roomId,
+      });
     }
 
     if (parentFolderId) {
@@ -447,6 +489,7 @@ export class FolderService {
       breadcrumb.unshift({
         id: currentFolder.id,
         name: currentFolder.name,
+        type: currentFolder.type,
       });
 
       if (currentFolder.parentFolder) {
@@ -483,5 +526,61 @@ export class FolderService {
     }
 
     return false;
+  }
+
+  private async recursivelyDeleteFolderContents(folder: Folder): Promise<{
+    subfolders: number;
+    notes: number;
+    files: number;
+  }> {
+    let deletedSubfolders = 0;
+    let deletedNotes = 0;
+    let deletedFiles = 0;
+
+    // Get all direct subfolders with their contents
+    const subfolders = await this.folderRepository.find({
+      where: { parentFolder: { id: folder.id } },
+      relations: ['notes', 'files', 'subfolders'],
+    });
+
+    // Recursively delete each subfolder
+    for (const subfolder of subfolders) {
+      const subfolderStats = await this.recursivelyDeleteFolderContents(subfolder);
+      deletedSubfolders += subfolderStats.subfolders;
+      deletedNotes += subfolderStats.notes;
+      deletedFiles += subfolderStats.files;
+
+      // Delete the subfolder itself
+      await this.folderRepository.remove(subfolder);
+      deletedSubfolders += 1;
+    }
+
+    // Delete all notes in this folder
+    const notes = await this.noteRepository.find({
+      where: { folder: { id: folder.id } },
+    });
+
+    for (const note of notes) {
+      await this.noteRepository.remove(note);
+      deletedNotes += 1;
+    }
+
+    // Delete all files in this folder
+    const files = await this.fileRepository.find({
+      where: { folder: { id: folder.id } },
+    });
+
+    for (const file of files) {
+      // Note: This only deletes the database record
+      // The actual S3 file remains for potential recovery/cleanup
+      await this.fileRepository.remove(file);
+      deletedFiles += 1;
+    }
+
+    return {
+      subfolders: deletedSubfolders,
+      notes: deletedNotes,
+      files: deletedFiles,
+    };
   }
 }

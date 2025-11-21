@@ -6,6 +6,7 @@ import { Folder } from '../entities/folder.entity';
 import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { RoomMember } from '../entities/room-member.entity';
+import { RoomPermissions } from '../entities/room-permissions.entity';
 import { Note } from '../entities/note.entity';
 import { File } from '../entities/file.entity';
 
@@ -14,8 +15,9 @@ import { File } from '../entities/file.entity';
     TypeOrmModule.forFeature([
       Folder,
       User,
-      Room,      
+      Room,
       RoomMember,
+      RoomPermissions,
       Note,
       File,
     ]),

@@ -1,4 +1,3 @@
-// src/entities/folder.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -14,14 +13,25 @@ import { Room } from './room.entity';
 import { Note } from './note.entity';
 import { File } from './file.entity';
 
+export enum FolderType {
+  NOTES = 'notes',
+  ROOM = 'room',
+}
+
 @Entity('folders')
-@Index(['owner', 'room', 'parentFolder'])
+@Index(['owner', 'room', 'parentFolder', 'type'])
 export class Folder {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column()
   name: string;
+
+  @Column({
+    type: 'enum',
+    enum: FolderType,
+  })
+  type: FolderType;
 
   @ManyToOne(() => User)
   owner: User;

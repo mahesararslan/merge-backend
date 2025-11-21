@@ -1,5 +1,6 @@
-import { IsOptional, IsIn, IsUUID } from 'class-validator';
+import { IsOptional, IsIn, IsUUID, IsEnum } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
+import { FolderType } from '../../entities/folder.entity';
 
 export class QueryFolderDto {
   @IsOptional()
@@ -21,6 +22,10 @@ export class QueryFolderDto {
 
   @IsOptional()
   search?: string;
+
+  @IsOptional()
+  @IsEnum(FolderType)
+  type?: FolderType;
 
   @IsOptional()
   @IsUUID('4')

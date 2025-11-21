@@ -1,3 +1,4 @@
+// src/note/note.controller.ts
 import {
   Controller,
   Get,
@@ -19,12 +20,13 @@ import { UpdateNoteDto } from './dto/update-note.dto';
 import { QueryNoteDto } from './dto/query-note.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 
+
 @Controller('notes')
 @UseGuards(JwtAuthGuard)
 export class NoteController {
   constructor(private readonly noteService: NoteService) {}
 
-  @Post('create')
+  @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createNoteDto: CreateNoteDto, @Req() req) {
     return this.noteService.create(createNoteDto, req.user.id);
@@ -33,6 +35,16 @@ export class NoteController {
   @Get()
   findAll(@Query() queryDto: QueryNoteDto, @Req() req) {
     return this.noteService.findAll(queryDto, req.user.id);
+  }
+
+  @Get('recent/created')
+  getRecentlyCreated(@Query('limit') limit: number = 5, @Req() req) {
+    return this.noteService.findRecentlyCreated(req.user.id, limit);
+  }
+
+  @Get('recent/updated')
+  getRecentlyUpdated(@Query('limit') limit: number = 5, @Req() req) {
+    return this.noteService.findRecentlyUpdated(req.user.id, limit);
   }
 
   @Get(':id')
@@ -54,14 +66,4 @@ export class NoteController {
   remove(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
     return this.noteService.remove(id, req.user.id);
   }
-
-  @Patch(':id/move')
-  moveToFolder(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { folderId?: string },
-    @Req() req,
-  ) {
-    return this.noteService.moveToFolder(id, body.folderId || null, req.user.id);
-  }
-
 }

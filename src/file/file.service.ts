@@ -93,7 +93,7 @@ export class FileService {
       // Call external upload service
       const uploadServiceUrl = this.configService.get('UPLOAD_FILE_SERVICE_URL');
       const internalSecret = this.configService.get('INTERNAL_SERVICE_SECRET');
-
+      
       const formData = new FormData();
       formData.append('file', new Blob([file.buffer]), file.originalname);
 
@@ -256,8 +256,8 @@ export class FileService {
     }
 
     // Update fields
-    if (updateFileDto.originalName !== undefined) {
-      file.originalName = updateFileDto.originalName;
+    if (updateFileDto.updatedName !== undefined) {
+      file.originalName = updateFileDto.updatedName;
     }
 
     if (updateFileDto.folderId !== undefined) {

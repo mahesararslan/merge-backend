@@ -1,7 +1,13 @@
-import { IsOptional, IsIn, IsUUID } from 'class-validator';
+import { IsOptional, IsIn } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
-export class QueryNoteDto {
+export enum RoomFilter {
+  JOINED = 'joined',
+  CREATED = 'created',
+  ALL = 'all',
+}
+
+export class QueryUserRoomsDto {
   @IsOptional()
   @Type(() => Number)
   page?: number = 1;
@@ -11,7 +17,7 @@ export class QueryNoteDto {
   limit?: number = 20;
 
   @IsOptional()
-  @IsIn(['title', 'createdAt', 'updatedAt', 'name']) // Added 'name' for folder sorting
+  @IsIn(['title', 'createdAt', 'updatedAt'])
   sortBy?: string = 'updatedAt';
 
   @IsOptional()
@@ -20,9 +26,9 @@ export class QueryNoteDto {
   sortOrder?: 'ASC' | 'DESC' = 'DESC';
 
   @IsOptional()
-  search?: string;
+  @IsIn(['joined', 'created', 'all'])
+  filter?: RoomFilter = RoomFilter.ALL;
 
   @IsOptional()
-  @IsUUID('4')
-  folderId?: string;
+  search?: string;
 }

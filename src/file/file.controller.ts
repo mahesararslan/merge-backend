@@ -46,7 +46,6 @@ export class FileController {
     @Body() uploadFileDto: UploadFileDto,
     @Req() req,
   ) {
-    console.log('Uploaded file reveived');
     return this.fileService.uploadFile(file, uploadFileDto, req.user.id);
   }
 

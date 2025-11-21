@@ -1,4 +1,3 @@
-// src/room/room.controller.ts
 import {
   Controller,
   Get,
@@ -19,6 +18,9 @@ import { UpdateRoomDto } from './dto/update-room.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
 import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { Public } from '../auth/decorators/public.decorator';
+import { QueryUserRoomsDto } from './dto/query-user-rooms.dto';
+import { QueryAllRoomsDto } from './dto/query-all-rooms.dto';
+import { QueryUserFeedDto } from './dto/query-user-feed.dto';
 
 @Controller('room')
 export class RoomController {
@@ -30,53 +32,33 @@ export class RoomController {
     return this.roomService.create(createRoomDto, req.user.id);
   }
 
+  // Get my rooms with filters
+  @Get('my-rooms')
+  @UseInterceptors(CacheInterceptor)
+  getMyRooms(@Query() queryDto: QueryUserRoomsDto, @Req() req) {
+    return this.roomService.findUserRoomsWithFilter(queryDto, req.user.id);
+  }
+
   // Get all public rooms with pagination and search
   @Public()
   @Get()
   @UseInterceptors(CacheInterceptor)
-  findAll(
-    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
-    @Query('search') search?: string,
-  ) {
-    return this.roomService.findAll(page, limit, search);
+  findAll(@Query() queryDto: QueryAllRoomsDto) {
+    return this.roomService.findAll(queryDto);
   }
 
   // get rooms for user feed which are according to his interests(tags)
   @Get('feed')
-@UseInterceptors(CacheInterceptor)
-getUserFeed(
-  @Req() req,
-  @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
-  @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
-  @Query('includeJoined') includeJoined?: string,
-) {
-  // Convert string query param to boolean, default to false
-  const shouldIncludeJoined = includeJoined === 'true';
-  
-  return this.roomService.getUserFeed(req.user.id, page, limit, shouldIncludeJoined);
-}
-
-  // Search rooms by tags
-  // @Get('search-by-tags')
-  // @UseInterceptors(CacheInterceptor)
-  // searchByTags(@Query('tags') tags: string) {
-  //   const tagNames = tags ? tags.split(',').map(tag => tag.trim()) : [];
-  //   return this.roomService.searchRoomsByTags(tagNames);
-  // }
+  @UseInterceptors(CacheInterceptor)
+  getUserFeed(@Req() req, @Query() queryDto: QueryUserFeedDto) {
+    return this.roomService.getUserFeed(req.user.id, queryDto);
+  }
 
   // Join room by code
   @Post('join')
   joinRoom(@Body() joinRoomDto: JoinRoomDto, @Req() req) {
     return this.roomService.joinRoom(joinRoomDto.roomCode, req.user.id);
   }
-
-  // // Get room by room code
-  // @Get('code/:roomCode')
-  // @UseInterceptors(CacheInterceptor)
-  // findByRoomCode(@Param('roomCode') roomCode: string) {
-  //   return this.roomService.findByRoomCode(roomCode);
-  // }
 
   // Get specific room by ID
   @Get(':id')
@@ -113,4 +95,6 @@ getUserFeed(
   getRoomMembers(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
     return this.roomService.getRoomMembers(id, req.user.id);
   }
+
+  
 }

@@ -1,10 +1,10 @@
 // @ts-nocheck
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Note } from '../entities/note.entity';
 import { User } from '../entities/user.entity';
-import { Folder } from '../entities/folder.entity';
+import { Folder, FolderType } from '../entities/folder.entity';
 import { CreateNoteDto } from './dto/create-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
 import { QueryNoteDto } from './dto/query-note.dto';
@@ -30,8 +30,6 @@ export class NoteService {
     }
 
     let folder = null;
-
-    // Validate folder if provided
     if (createNoteDto.folderId) {
       folder = await this.folderRepository.findOne({
         where: { id: createNoteDto.folderId },
@@ -42,98 +40,208 @@ export class NoteService {
         throw new NotFoundException('Folder not found');
       }
 
-      // Check if user owns the folder
-      if (folder.owner.id !== userId) {
-        throw new ForbiddenException('You can only add notes to your own folders');
+      // Check if user owns the folder and it's a notes folder
+      if (folder.owner.id !== userId || folder.type !== FolderType.NOTES) {
+        throw new ForbiddenException('You can only create notes in your own notes folders');
       }
     }
 
     const note = new Note();
-    note.title = createNoteDto.title;
-    note.content = createNoteDto.content;
     note.owner = user;
     note.folder = folder;
+    note.title = createNoteDto.title;
+    note.content = createNoteDto.content;
 
     return this.noteRepository.save(note);
   }
 
-  async findAll(
-    queryDto: QueryNoteDto,
-    userId: string,
-  ): Promise<{
+  async findAll(queryDto: QueryNoteDto, userId: string): Promise<{
+    folders: any[];
     notes: Note[];
-    total: number;
-    totalPages: number;
-    currentPage: number;
-  }> {
-    const { page, limit, folderId, search, sortBy, sortOrder } = queryDto;
-    const skip = (page - 1) * limit;
-
-    const where: FindOptionsWhere<Note> = {
-      owner: { id: userId },
+    total: { folders: number; notes: number; combined: number };
+    pagination: {
+      totalPages: number;
+      currentPage: number;
+      sortBy: string;
+      sortOrder: string;
     };
+    breadcrumb?: any[];
+    currentFolder?: any;
+  }> {
+    const { page, limit, sortBy, sortOrder, search, folderId } = queryDto;
 
-    // Filter by folder
-    if (folderId) {
-      if (folderId === 'null' || folderId === 'root') {
-        // Get notes not in any folder
-        where.folder = null;
-      } else {
-        // Validate user owns the folder
-        const folder = await this.folderRepository.findOne({
-          where: { id: folderId },
-          relations: ['owner'],
-        });
+    // Determine if we're looking at root or specific folder
+    const isRoot = !folderId || folderId === 'root' || folderId === 'null';
+    
+    let currentFolder = null;
+    let breadcrumb = [];
 
-        if (!folder) {
-          throw new NotFoundException('Folder not found');
-        }
+    // If not root, get current folder info and breadcrumb
+    if (!isRoot) {
+      currentFolder = await this.folderRepository.findOne({
+        where: { id: folderId },
+        relations: ['owner', 'parentFolder'],
+      });
 
-        if (folder.owner.id !== userId) {
-          throw new ForbiddenException('You can only access your own folders');
-        }
-
-        where.folder = { id: folderId };
+      if (!currentFolder) {
+        throw new NotFoundException('Folder not found');
       }
+
+      if (currentFolder.owner.id !== userId || currentFolder.type !== FolderType.NOTES) {
+        throw new ForbiddenException('You can only access your own notes folders');
+      }
+
+      breadcrumb = await this.generateBreadcrumb(folderId);
     }
 
-    // Build the query
-    let queryBuilder = this.noteRepository
+    // Build folder query
+    let folderQueryBuilder = this.folderRepository
+      .createQueryBuilder('folder')
+      .leftJoinAndSelect('folder.owner', 'owner')
+      .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
+      .where('folder.owner.id = :userId AND folder.type = :folderType', {
+        userId,
+        folderType: FolderType.NOTES,
+      });
+
+    // Build note query
+    let noteQueryBuilder = this.noteRepository
       .createQueryBuilder('note')
       .leftJoinAndSelect('note.owner', 'owner')
       .leftJoinAndSelect('note.folder', 'folder')
       .where('note.owner.id = :userId', { userId });
 
-    // Apply folder filter
-    if (folderId) {
-      if (folderId === 'null' || folderId === 'root') {
-        queryBuilder.andWhere('note.folder IS NULL');
-      } else {
-        queryBuilder.andWhere('note.folder.id = :folderId', { folderId });
-      }
+    // Filter by folder location
+    if (isRoot) {
+      folderQueryBuilder.andWhere('folder.parentFolder IS NULL');
+      noteQueryBuilder.andWhere('note.folder IS NULL');
+    } else {
+      folderQueryBuilder.andWhere('folder.parentFolder.id = :folderId', { folderId });
+      noteQueryBuilder.andWhere('note.folder.id = :folderId', { folderId });
     }
 
-    // Apply search filter
+    // Apply search filter to both folders and notes
     if (search) {
-      queryBuilder.andWhere(
+      folderQueryBuilder.andWhere('folder.name ILIKE :search', { search: `%${search}%` });
+      noteQueryBuilder.andWhere(
         '(note.title ILIKE :search OR note.content ILIKE :search)',
         { search: `%${search}%` }
       );
     }
 
-    // Apply sorting
-    queryBuilder.orderBy(`note.${sortBy}`, sortOrder);
+    // Get total counts for pagination
+    const [totalFolders, totalNotes] = await Promise.all([
+      folderQueryBuilder.getCount(),
+      noteQueryBuilder.getCount(),
+    ]);
 
-    // Apply pagination
-    queryBuilder.skip(skip).take(limit);
+    const totalCombined = totalFolders + totalNotes;
+    const totalPages = Math.ceil(totalCombined / limit);
+    const skip = (page - 1) * limit;
 
-    const [notes, total] = await queryBuilder.getManyAndCount();
+    // For combined sorting, we need to handle folders and notes together
+    let folders = [];
+    let notes = [];
+
+    if (sortBy === 'name' || sortBy === 'createdAt' || sortBy === 'updatedAt') {
+      // Get all folders and notes, then sort them together
+      const allFolders = await folderQueryBuilder
+        .orderBy(`folder.${sortBy === 'name' ? 'name' : sortBy}`, sortOrder)
+        .getMany();
+
+      const allNotes = await noteQueryBuilder
+        .orderBy(`note.${sortBy === 'name' ? 'title' : sortBy}`, sortOrder)
+        .getMany();
+
+      // Combine and sort
+      const combined = [
+        ...allFolders.map(folder => ({ ...folder, itemType: 'folder', sortValue: folder[sortBy === 'name' ? 'name' : sortBy] })),
+        ...allNotes.map(note => ({ ...note, itemType: 'note', sortValue: note[sortBy === 'name' ? 'title' : sortBy] }))
+      ];
+
+      // Sort combined results
+      combined.sort((a, b) => {
+        if (sortOrder === 'ASC') {
+          return a.sortValue > b.sortValue ? 1 : -1;
+        } else {
+          return a.sortValue < b.sortValue ? 1 : -1;
+        }
+      });
+
+      // Apply pagination to combined results
+      const paginatedCombined = combined.slice(skip, skip + limit);
+
+      // Separate back to folders and notes
+      folders = paginatedCombined.filter(item => item.itemType === 'folder');
+      notes = paginatedCombined.filter(item => item.itemType === 'note');
+
+      // Clean up the extra properties
+      folders = folders.map(({ itemType, sortValue, ...folder }) => folder);
+      notes = notes.map(({ itemType, sortValue, ...note }) => note);
+    } else {
+      // For title sorting, prioritize folders first, then notes
+      const foldersFirst = Math.min(totalFolders, Math.max(0, limit - Math.max(0, skip - totalFolders)));
+      const notesFirst = Math.min(totalNotes, Math.max(0, limit - Math.max(0, skip - totalNotes)));
+
+      if (skip < totalFolders) {
+        folders = await folderQueryBuilder
+          .orderBy('folder.name', sortOrder)
+          .skip(skip)
+          .take(foldersFirst)
+          .getMany();
+
+        if (folders.length < limit) {
+          notes = await noteQueryBuilder
+            .orderBy(`note.${sortBy}`, sortOrder)
+            .take(limit - folders.length)
+            .getMany();
+        }
+      } else {
+        notes = await noteQueryBuilder
+          .orderBy(`note.${sortBy}`, sortOrder)
+          .skip(skip - totalFolders)
+          .take(notesFirst)
+          .getMany();
+      }
+    }
+
+    // Add counts to folders
+    const foldersWithCounts = await Promise.all(
+      folders.map(async (folder) => {
+        const [subfolderCount, noteCount] = await Promise.all([
+          this.folderRepository.count({
+            where: { parentFolder: { id: folder.id }, owner: { id: userId } },
+          }),
+          this.noteRepository.count({
+            where: { folder: { id: folder.id }, owner: { id: userId } },
+          }),
+        ]);
+
+        return {
+          ...folder,
+          subfolderCount,
+          noteCount,
+          totalItems: subfolderCount + noteCount,
+        };
+      })
+    );
 
     return {
+      folders: foldersWithCounts,
       notes,
-      total,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
+      total: {
+        folders: totalFolders,
+        notes: totalNotes,
+        combined: totalCombined,
+      },
+      pagination: {
+        totalPages,
+        currentPage: page,
+        sortBy,
+        sortOrder,
+      },
+      breadcrumb,
+      currentFolder,
     };
   }
 
@@ -147,42 +255,48 @@ export class NoteService {
       throw new NotFoundException(`Note with ID ${id} not found`);
     }
 
-    // Check ownership
+    // Check if user owns the note
     if (note.owner.id !== userId) {
-      throw new ForbiddenException('You do not have access to this note');
+      throw new ForbiddenException('You can only access your own notes');
     }
 
     return note;
   }
 
   async update(id: string, updateNoteDto: UpdateNoteDto, userId: string): Promise<Note> {
-    const note = await this.findOne(id, userId);
+    const note = await this.noteRepository.findOne({
+      where: { id },
+      relations: ['owner', 'folder'],
+    });
 
-    // Only owner can update the note
+    if (!note) {
+      throw new NotFoundException(`Note with ID ${id} not found`);
+    }
+
+    // Check if user owns the note
     if (note.owner.id !== userId) {
       throw new ForbiddenException('You can only update your own notes');
     }
 
-    // Validate new folder if provided
+    // Handle folder change
     if (updateNoteDto.folderId !== undefined) {
-      if (updateNoteDto.folderId === null || updateNoteDto.folderId === '') {
-        // Remove from folder
-        note.folder = null;
-      } else {
-        const folder = await this.folderRepository.findOne({
+      if (updateNoteDto.folderId) {
+        const newFolder = await this.folderRepository.findOne({
           where: { id: updateNoteDto.folderId },
           relations: ['owner'],
         });
 
-        if (!folder) {
+        if (!newFolder) {
           throw new NotFoundException('Folder not found');
         }
 
-        if (folder.owner.id !== userId) {
-          throw new ForbiddenException('You can only move notes to your own folders');
+        if (newFolder.owner.id !== userId || newFolder.type !== FolderType.NOTES) {
+          throw new ForbiddenException('You can only move notes to your own notes folders');
         }
 
-        note.folder = folder;
+        note.folder = newFolder;
+      } else {
+        note.folder = null;
       }
     }
 
@@ -190,6 +304,7 @@ export class NoteService {
     if (updateNoteDto.title !== undefined) {
       note.title = updateNoteDto.title;
     }
+
     if (updateNoteDto.content !== undefined) {
       note.content = updateNoteDto.content;
     }
@@ -198,9 +313,16 @@ export class NoteService {
   }
 
   async remove(id: string, userId: string): Promise<void> {
-    const note = await this.findOne(id, userId);
+    const note = await this.noteRepository.findOne({
+      where: { id },
+      relations: ['owner'],
+    });
 
-    // Only owner can delete the note
+    if (!note) {
+      throw new NotFoundException(`Note with ID ${id} not found`);
+    }
+
+    // Check if user owns the note
     if (note.owner.id !== userId) {
       throw new ForbiddenException('You can only delete your own notes');
     }
@@ -208,66 +330,51 @@ export class NoteService {
     await this.noteRepository.remove(note);
   }
 
-  async moveToFolder(noteId: string, folderId: string | null, userId: string): Promise<Note> {
-    const note = await this.findOne(noteId, userId);
-
-    if (note.owner.id !== userId) {
-      throw new ForbiddenException('You can only move your own notes');
-    }
-
-    if (folderId) {
-      const folder = await this.folderRepository.findOne({
-        where: { id: folderId },
-        relations: ['owner'],
-      });
-
-      if (!folder) {
-        throw new NotFoundException('Folder not found');
-      }
-
-      if (folder.owner.id !== userId) {
-        throw new ForbiddenException('You can only move notes to your own folders');
-      }
-
-      note.folder = folder;
-    } else {
-      note.folder = null; // Remove from folder
-    }
-
-    return this.noteRepository.save(note);
+  // Additional method for getting recently created notes
+  async findRecentlyCreated(userId: string, limit: number = 5): Promise<Note[]> {
+    return this.noteRepository.find({
+      where: { owner: { id: userId } },
+      relations: ['folder'],
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
   }
 
-  async getNotesStats(userId: string): Promise<{
-    totalNotes: number;
-    notesInFolders: number;
-    notesWithoutFolder: number;
-    recentNotes: Note[];
-  }> {
-    const totalNotes = await this.noteRepository.count({
-      where: { owner: { id: userId } },
-    });
-
-    const notesInFolders = await this.noteRepository.count({
-      where: { 
-        owner: { id: userId },
-        folder: { id: Not(null) },
-      },
-    });
-
-    const notesWithoutFolder = totalNotes - notesInFolders;
-
-    const recentNotes = await this.noteRepository.find({
+  // Additional method for getting recently updated notes
+  async findRecentlyUpdated(userId: string, limit: number = 5): Promise<Note[]> {
+    return this.noteRepository.find({
       where: { owner: { id: userId } },
       relations: ['folder'],
       order: { updatedAt: 'DESC' },
-      take: 5,
+      take: limit,
+    });
+  }
+
+  // Helper method to generate breadcrumb
+  private async generateBreadcrumb(folderId: string): Promise<any[]> {
+    const breadcrumb = [];
+    let currentFolder = await this.folderRepository.findOne({
+      where: { id: folderId },
+      relations: ['parentFolder'],
     });
 
-    return {
-      totalNotes,
-      notesInFolders,
-      notesWithoutFolder,
-      recentNotes,
-    };
+    while (currentFolder) {
+      breadcrumb.unshift({
+        id: currentFolder.id,
+        name: currentFolder.name,
+        type: currentFolder.type,
+      });
+
+      if (currentFolder.parentFolder) {
+        currentFolder = await this.folderRepository.findOne({
+          where: { id: currentFolder.parentFolder.id },
+          relations: ['parentFolder'],
+        });
+      } else {
+        break;
+      }
+    }
+
+    return breadcrumb;
   }
 }

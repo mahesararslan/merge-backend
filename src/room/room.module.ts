@@ -7,10 +7,16 @@ import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
 import { TagModule } from '../tag/tag.module';
 import { RoomMember } from 'src/entities/room-member.entity';
+import { RoomPermissions } from '../entities/room-permissions.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Room, User, RoomMember]),
+    TypeOrmModule.forFeature([
+      Room, 
+      User, 
+      RoomMember, 
+      RoomPermissions, 
+    ]),
     TagModule,
   ],
   controllers: [RoomController],

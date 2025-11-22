@@ -16,6 +16,7 @@ import { RoomModule } from './room/room.module';
 import { NoteModule } from './note/note.module';
 import { FolderModule } from './folder/folder.module';
 import { FileModule } from './file/file.module';
+import { QuizModule } from './quiz/quiz.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { FileModule } from './file/file.module';
     NoteModule,
     FolderModule,
     FileModule,
+    QuizModule,
   ],
   controllers: [AppController],
   providers: [

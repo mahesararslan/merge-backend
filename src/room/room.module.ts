@@ -8,6 +8,8 @@ import { User } from '../entities/user.entity';
 import { TagModule } from '../tag/tag.module';
 import { RoomMember } from 'src/entities/room-member.entity';
 import { RoomPermissions } from '../entities/room-permissions.entity';
+import { File } from '../entities/file.entity';
+import { Folder } from 'src/entities/folder.entity';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { RoomPermissions } from '../entities/room-permissions.entity';
       User, 
       RoomMember, 
       RoomPermissions, 
+      Folder,     
+      File, 
     ]),
     TagModule,
   ],

@@ -21,6 +21,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { QueryUserRoomsDto } from './dto/query-user-rooms.dto';
 import { QueryAllRoomsDto } from './dto/query-all-rooms.dto';
 import { QueryUserFeedDto } from './dto/query-user-feed.dto';
+import { QueryRoomContentDto } from './dto/query-room-content.dto';
 
 @Controller('room')
 export class RoomController {
@@ -96,5 +97,13 @@ export class RoomController {
     return this.roomService.getRoomMembers(id, req.user.id);
   }
 
-  
+  @Get(':id/course-content')
+  @UseInterceptors(CacheInterceptor)
+  getRoomContent(
+    @Param('id', ParseUUIDPipe) roomId: string,
+    @Query() queryDto: QueryRoomContentDto,
+    @Req() req,
+  ) {
+    return this.roomService.getRoomContent(roomId, queryDto, req.user.id);
+  }
 }

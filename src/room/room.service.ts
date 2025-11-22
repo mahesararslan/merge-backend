@@ -16,6 +16,9 @@ import { Tag } from 'src/entities/tag.entity';
 import { RoomMember } from '../entities/room-member.entity'; // Add this import
 import { QueryUserRoomsDto, RoomFilter } from './dto/query-user-rooms.dto';
 import { RoomPermissions } from '../entities/room-permissions.entity';
+import { Folder, FolderType } from '../entities/folder.entity';
+import { File } from '../entities/file.entity';
+import { QueryRoomContentDto } from './dto/query-room-content.dto';
 
 @Injectable()
 export class RoomService {
@@ -28,6 +31,10 @@ export class RoomService {
     private roomMemberRepository: Repository<RoomMember>,
     @InjectRepository(RoomPermissions)
     private roomPermissionsRepository: Repository<RoomPermissions>,
+    @InjectRepository(Folder)
+    private folderRepository: Repository<Folder>,
+    @InjectRepository(File)
+    private fileRepository: Repository<File>,
     private tagService: TagService,
   ) {}
 
@@ -726,5 +733,257 @@ export class RoomService {
     });
 
     return member ? 'member' : null;
+  }
+
+  async getRoomContent(roomId: string, queryDto: QueryRoomContentDto, userId: string): Promise<{
+    folders: any[];
+    files: File[];
+    total: { folders: number; files: number; combined: number };
+    pagination: {
+      totalPages: number;
+      currentPage: number;
+      sortBy: string;
+      sortOrder: string;
+    };
+    breadcrumb?: any[];
+    currentFolder?: any;
+    roomInfo: any;
+  }> {
+    const { page, limit, sortBy, sortOrder, search, folderId } = queryDto;
+
+    // First, verify user has access to this room
+    const hasAccess = await this.checkUserRoomAccess(userId, roomId);
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to this room');
+    }
+
+    // Get room info
+    const room = await this.roomRepository.findOne({
+      where: { id: roomId },
+      relations: ['admin'],
+    });
+
+    if (!room) {
+      throw new NotFoundException('Room not found');
+    }
+
+    // Determine if we're looking at root or specific folder
+    const isRoot = !folderId || folderId === 'root' || folderId === 'null';
+    
+    let currentFolder = null;
+    let breadcrumb = [];
+
+    // If not root, get current folder info and breadcrumb
+    if (!isRoot) {
+      currentFolder = await this.folderRepository.findOne({
+        where: { id: folderId },
+        relations: ['room', 'parentFolder'],
+      });
+
+      if (!currentFolder) {
+        throw new NotFoundException('Folder not found');
+      }
+
+      if (currentFolder.room.id !== roomId || currentFolder.type !== FolderType.ROOM) {
+        throw new ForbiddenException('Folder does not belong to this room');
+      }
+
+      breadcrumb = await this.generateFolderBreadcrumb(folderId);
+    }
+
+    // Build folder query
+    let folderQueryBuilder = this.folderRepository
+      .createQueryBuilder('folder')
+      .leftJoinAndSelect('folder.room', 'room')
+      .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
+      .where('folder.room.id = :roomId AND folder.type = :folderType', {
+        roomId,
+        folderType: FolderType.ROOM,
+      });
+
+    // Build file query
+    let fileQueryBuilder = this.fileRepository
+      .createQueryBuilder('file')
+      .leftJoinAndSelect('file.uploader', 'uploader')
+      .leftJoinAndSelect('file.room', 'room')
+      .leftJoinAndSelect('file.folder', 'folder')
+      .where('file.room.id = :roomId', { roomId });
+
+    // Filter by folder location
+    if (isRoot) {
+      folderQueryBuilder.andWhere('folder.parentFolder IS NULL');
+      fileQueryBuilder.andWhere('file.folder IS NULL');
+    } else {
+      folderQueryBuilder.andWhere('folder.parentFolder.id = :folderId', { folderId });
+      fileQueryBuilder.andWhere('file.folder.id = :folderId', { folderId });
+    }
+
+    // Apply search filter to both folders and files
+    if (search) {
+      folderQueryBuilder.andWhere('folder.name ILIKE :search', { search: `%${search}%` });
+      fileQueryBuilder.andWhere(
+        '(file.originalName ILIKE :search OR file.fileName ILIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
+
+    // Get total counts for pagination
+    const [totalFolders, totalFiles] = await Promise.all([
+      folderQueryBuilder.getCount(),
+      fileQueryBuilder.getCount(),
+    ]);
+
+    const totalCombined = totalFolders + totalFiles;
+    const totalPages = Math.ceil(totalCombined / limit);
+    const skip = (page - 1) * limit;
+
+    // For combined sorting, we need to handle folders and files together
+    let folders = [];
+    let files = [];
+
+    if (sortBy === 'name' || sortBy === 'createdAt' || sortBy === 'updatedAt') {
+      // Get all folders and files, then sort them together
+      const allFolders = await folderQueryBuilder
+        .orderBy(`folder.${sortBy === 'name' ? 'name' : sortBy}`, sortOrder)
+        .getMany();
+
+      const allFiles = await fileQueryBuilder
+        .orderBy(`file.${sortBy === 'name' ? 'originalName' : sortBy}`, sortOrder)
+        .getMany();
+
+      // Combine and sort
+      const combined = [
+        ...allFolders.map(folder => ({ 
+          ...folder, 
+          itemType: 'folder', 
+          sortValue: folder[sortBy === 'name' ? 'name' : sortBy] 
+        })),
+        ...allFiles.map(file => ({ 
+          ...file, 
+          itemType: 'file', 
+          sortValue: file[sortBy === 'name' ? 'originalName' : sortBy] 
+        }))
+      ];
+
+      // Sort combined results
+      combined.sort((a, b) => {
+        const aValue = new Date(a.sortValue).getTime() || a.sortValue;
+        const bValue = new Date(b.sortValue).getTime() || b.sortValue;
+        
+        if (sortOrder === 'ASC') {
+          return aValue > bValue ? 1 : -1;
+        } else {
+          return aValue < bValue ? 1 : -1;
+        }
+      });
+
+      // Apply pagination to combined results
+      const paginatedCombined = combined.slice(skip, skip + limit);
+
+      // Separate back to folders and files
+      folders = paginatedCombined.filter(item => item.itemType === 'folder');
+      files = paginatedCombined.filter(item => item.itemType === 'file');
+
+      // Clean up the extra properties
+      folders = folders.map(({ itemType, sortValue, ...folder }) => folder);
+      files = files.map(({ itemType, sortValue, ...file }) => file);
+    } else {
+      // For title sorting, prioritize folders first, then files
+      if (skip < totalFolders) {
+        folders = await folderQueryBuilder
+          .orderBy('folder.name', sortOrder)
+          .skip(skip)
+          .take(Math.min(totalFolders - skip, limit))
+          .getMany();
+
+        if (folders.length < limit) {
+          files = await fileQueryBuilder
+            .orderBy('file.originalName', sortOrder)
+            .take(limit - folders.length)
+            .getMany();
+        }
+      } else {
+        files = await fileQueryBuilder
+          .orderBy('file.originalName', sortOrder)
+          .skip(skip - totalFolders)
+          .take(limit)
+          .getMany();
+      }
+    }
+
+    // Add counts to folders
+    const foldersWithCounts = await Promise.all(
+      folders.map(async (folder) => {
+        const [subfolderCount, fileCount] = await Promise.all([
+          this.folderRepository.count({
+            where: { parentFolder: { id: folder.id }, room: { id: roomId } },
+          }),
+          this.fileRepository.count({
+            where: { folder: { id: folder.id }, room: { id: roomId } },
+          }),
+        ]);
+
+        return {
+          ...folder,
+          subfolderCount,
+          fileCount,
+          totalItems: subfolderCount + fileCount,
+        };
+      })
+    );
+
+    // Get user's role in the room for permission context
+    const userRole = await this.getUserRoleInRoom(userId, roomId);
+
+    return {
+      folders: foldersWithCounts,
+      files,
+      total: {
+        folders: totalFolders,
+        files: totalFiles,
+        combined: totalCombined,
+      },
+      pagination: {
+        totalPages,
+        currentPage: page,
+        sortBy,
+        sortOrder,
+      },
+      breadcrumb,
+      currentFolder,
+      roomInfo: {
+        id: room.id,
+        title: room.title,
+        userRole,
+      },
+    };
+  }
+
+  // Helper method to generate folder breadcrumb
+  private async generateFolderBreadcrumb(folderId: string): Promise<any[]> {
+    const breadcrumb = [];
+    let currentFolder = await this.folderRepository.findOne({
+      where: { id: folderId },
+      relations: ['parentFolder'],
+    });
+
+    while (currentFolder) {
+      breadcrumb.unshift({
+        id: currentFolder.id,
+        name: currentFolder.name,
+        type: currentFolder.type,
+      });
+
+      if (currentFolder.parentFolder) {
+        currentFolder = await this.folderRepository.findOne({
+          where: { id: currentFolder.parentFolder.id },
+          relations: ['parentFolder'],
+        });
+      } else {
+        break;
+      }
+    }
+
+    return breadcrumb;
   }
 }

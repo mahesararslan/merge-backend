@@ -33,14 +33,14 @@ import { QuizModule } from './quiz/quiz.module';
     }),
     CacheModule.register({
       isGlobal: true, // makes cache available app-wide
-      ttl: 300 * 1000, // seconds (default cache lifetime)
+      ttl: 0, // no cache for now.
       max: 1000, // maximum number of items in cache
     }),
     ThrottlerModule.forRoot({
       throttlers: [
         {
           ttl: 60 * 1000, // Time to live for each request in milliseconds which in this case is 1 minute
-          limit: 15, // Maximum number of requests allowed within the TTL
+          limit: 1000, // Maximum number of requests allowed within the TTL
         }, 
       ],
     }),

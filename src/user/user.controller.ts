@@ -29,7 +29,7 @@ export class UserController {
     private readonly tagService: TagService,
   ) {}
 
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   @Get('profile')
   getProfile(@Req() req) {
     return this.userService.findOne(req.user.id);
@@ -46,25 +46,25 @@ export class UserController {
   }
 
   @Get('my-rooms')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getUserRooms(@Req() req) {
     return this.userService.findUserRooms(req.user.id);
   }
 
   @Get('joined-rooms')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getJoinedRooms(@Req() req) {
     return this.userService.findJoinedRooms(req.user.id);
   }
 
   @Get('all-rooms')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getAllUserRooms(@Req() req) {
     return this.userService.findAllUserRooms(req.user.id);
   }
 
   @Get('/tags')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getUserTags(@Req() req) {
     return this.userService.getUserTags(req.user.id);
   }
@@ -76,7 +76,7 @@ export class UserController {
 
   @Public()
   @Get('/available-tags')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getAvailableTags() {
     return this.tagService.findAll();
   }

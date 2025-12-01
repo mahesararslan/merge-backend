@@ -81,7 +81,7 @@ export class AuthController {
     return await this.authService.refreshToken(req.user.id); 
   }
 
-  @Throttle({ default: { limit: 2, ttl: 10000 } })
+  @Throttle({ default: { limit: 2, ttl: 10000 } }) //  2 req per 10 seconds
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('forgot-password')
@@ -89,7 +89,7 @@ export class AuthController {
     return this.authService.forgotPassword(forgotPasswordDto);
   }
 
-  @Throttle({ default: { limit: 2, ttl: 10000 } }) 
+  @Throttle({ default: { limit: 2, ttl: 10000 } }) // 2 req per 10 seconds
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('reset-password')

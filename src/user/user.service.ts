@@ -72,6 +72,7 @@ export class UserService {
         'hashedRefreshToken',
         'googleAccount',
         'twoFactorEnabled',
+        'password',
       ],
     });
     if (!user) {

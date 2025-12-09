@@ -326,19 +326,7 @@ export class UserService {
     return user.tags;
   }
 
-  async findUserRooms(userId: string): Promise<Room[]> {
-    return this.roomService.findUserRooms(userId);
-  }
-
-  async findJoinedRooms(userId: string): Promise<Room[]> {
-    return this.roomService.findJoinedRooms(userId);
-  }
-
-  async findAllUserRooms(userId: string): Promise<{
-    createdRooms: Room[];
-    joinedRooms: Room[];
-    totalRooms: number;
-  }> {
-    return this.roomService.findAllUserRooms(userId);
+  async findUserRooms(userId: string, queryDto: any) {
+    return this.roomService.findUserRoomsWithFilter(queryDto, userId);
   }
 }

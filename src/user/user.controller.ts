@@ -10,6 +10,7 @@ import {
   UseGuards,
   Req,
   UseInterceptors,
+  Query,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -21,6 +22,7 @@ import { CacheInterceptor } from '@nestjs/cache-manager';
 import { Public } from 'src/auth/decorators/public.decorator';
 import { TagService } from 'src/tag/tag.service';
 import { UserTagsDto } from './dto/user-tags.dto';
+import { QueryUserRoomsDto } from 'src/room/dto/query-user-rooms.dto';
 
 @Controller('user')
 export class UserController {
@@ -45,22 +47,10 @@ export class UserController {
     return this.userService.updatePassword(req.user.id, updatePasswordDto);
   }
 
-  @Get('my-rooms')
+  @Get('rooms')
   // @UseInterceptors(CacheInterceptor)
-  getUserRooms(@Req() req) {
-    return this.userService.findUserRooms(req.user.id);
-  }
-
-  @Get('joined-rooms')
-  // @UseInterceptors(CacheInterceptor)
-  getJoinedRooms(@Req() req) {
-    return this.userService.findJoinedRooms(req.user.id);
-  }
-
-  @Get('all-rooms')
-  // @UseInterceptors(CacheInterceptor)
-  getAllUserRooms(@Req() req) {
-    return this.userService.findAllUserRooms(req.user.id);
+  getUserRooms(@Query() queryDto: QueryUserRoomsDto, @Req() req) {
+    return this.userService.findUserRooms(req.user.id, queryDto);
   }
 
   @Get('/tags')

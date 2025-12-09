@@ -547,10 +547,34 @@ export class RoomService {
           where: { room: { id: room.id } },
         });
 
+        // Get 7 member previews (excluding admin)
+        const memberPreviews = await this.roomMemberRepository.find({
+          where: { room: { id: room.id } },
+          relations: ['user'],
+          take: 7,
+          order: { joinedAt: 'DESC' },
+        });
+
+        const members = memberPreviews.map(m => ({
+          id: m.user.id,
+          firstName: m.user.firstName,
+          lastName: m.user.lastName,
+          image: m.user.image,
+        }));
+
         return {
           ...room,
+          admin: {
+            id: room.admin.id,
+            firstName: room.admin.firstName,
+            lastName: room.admin.lastName,
+            email: room.admin.email,
+            image: room.admin.image,
+          },
+          type: 'created',
           userRole: 'admin',
           memberCount: memberCount + 1, // +1 for admin
+          members,
         };
       }),
     );
@@ -600,12 +624,36 @@ export class RoomService {
           where: { member: { id: member.id } },
         });
 
+        // Get 7 member previews (excluding admin)
+        const memberPreviews = await this.roomMemberRepository.find({
+          where: { room: { id: member.room.id } },
+          relations: ['user'],
+          take: 7,
+          order: { joinedAt: 'DESC' },
+        });
+
+        const membersList = memberPreviews.map(m => ({
+          id: m.user.id,
+          firstName: m.user.firstName,
+          lastName: m.user.lastName,
+          image: m.user.image,
+        }));
+
         return {
           ...member.room,
+          admin: {
+            id: member.room.admin.id,
+            firstName: member.room.admin.firstName,
+            lastName: member.room.admin.lastName,
+            email: member.room.admin.email,
+            image: member.room.admin.image,
+          },
+          type: 'joined',
           userRole: 'member',
           memberCount: memberCount + 1, // +1 for admin
           permissions,
           joinedAt: member.joinedAt,
+          members: membersList,
         };
       }),
     );

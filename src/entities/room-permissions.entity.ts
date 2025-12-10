@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
+// src/entities/room-permissions.entity.ts
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn } from 'typeorm';
 import { RoomMember } from './room-member.entity';
 
 @Entity('room_permissions')
@@ -6,7 +7,8 @@ export class RoomPermissions {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => RoomMember, (member) => member.roomPermissions, { onDelete: 'CASCADE' })
+  @OneToOne(() => RoomMember, (member) => member.roomPermissions, { onDelete: 'CASCADE' })
+  @JoinColumn()
   member: RoomMember;
 
   @Column({ default: false })
@@ -21,6 +23,6 @@ export class RoomPermissions {
   @Column({ default: false })
   can_post_announcements: boolean;
 
-  @Column({ default: false })
+  @Column({ default: true })
   can_talk_in_general_chat: boolean;
 }

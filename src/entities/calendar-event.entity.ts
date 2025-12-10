@@ -22,13 +22,7 @@ export class CalendarEvent {
   description: string;
 
   @Column()
-  startAt: Date;
-
-  @Column({ nullable: true })
-  endAt: Date;
-
-  @Column('simple-json', { nullable: true })
-  reminders: any;
+  deadline: Date;
 
   @CreateDateColumn()
   createdAt: Date;

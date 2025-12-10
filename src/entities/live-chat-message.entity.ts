@@ -15,8 +15,8 @@ export class LiveChatMessage {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Message)
-  message: Message;
+  @Column()
+  message: string;
 
   @ManyToOne(() => User)
   user: User;

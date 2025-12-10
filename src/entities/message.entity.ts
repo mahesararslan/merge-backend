@@ -26,9 +26,6 @@ export class Message {
   @Column({ nullable: true })
   attachmentURL: string;
 
-  @Column({ default: 'chat' })
-  type: string; // chat | question | system
-
   @Column({ nullable: true })
   replyToId: string;
 

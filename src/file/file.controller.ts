@@ -31,10 +31,10 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 export class FileController {
   constructor(private readonly fileService: FileService) {}
 
-  @Post('upload')
+  @Post('upload/course-content/:roomId')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(
+  async uploadFileInRoom(
     @UploadedFile(
       new ParseFilePipe({
         validators: [
@@ -43,10 +43,35 @@ export class FileController {
       }),
     )
     file: any,
+    @Param('roomId', ParseUUIDPipe) roomId: string,
     @Body() uploadFileDto: UploadFileDto,
     @Req() req,
   ) {
-    return this.fileService.uploadFile(file, uploadFileDto, req.user.id);
+    console.log('Uploading file:', file.originalname);
+    const dto = { ...uploadFileDto, roomId };
+    return this.fileService.uploadFile(file, dto, req.user.id);
+  }
+
+  @Post('upload/course-content/:roomId/:folderId')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadCourseContent(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 50 * 1024 * 1024 }), // 50MB limit
+        ],
+      }),
+    )
+    file: any,
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Param('folderId', ParseUUIDPipe) folderId: string,
+    @Body() uploadFileDto: UploadFileDto,
+    @Req() req,
+  ) {
+    console.log('Uploading file:', file.originalname);
+    const dto = { ...uploadFileDto, roomId, folderId };
+    return this.fileService.uploadFile(file, dto, req.user.id);
   }
 
   @Get()

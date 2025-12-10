@@ -3,10 +3,13 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
+  OneToMany,
   CreateDateColumn,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
+import { QuizQuestion } from './quiz-question.entity';
+import { QuizAttempt } from './quiz-attempt.entity';
 
 @Entity('quizzes')
 export class Quiz {
@@ -29,8 +32,11 @@ export class Quiz {
   createdAt: Date;
 
   @Column({ nullable: true })
-  startAt: Date;
+  deadline: Date;
 
-  @Column({ nullable: true })
-  endAt: Date;
+  @OneToMany(() => QuizQuestion, (question) => question.quiz, { cascade: true })
+  questions: QuizQuestion[];
+
+  @OneToMany(() => QuizAttempt, (attempt) => attempt.quiz)
+  attempts: QuizAttempt[];
 }

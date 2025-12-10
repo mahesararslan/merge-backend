@@ -25,6 +25,12 @@ export class Announcement {
   @Column()
   content: string;
 
+  @Column({ nullable: true })
+  scheduledAt: Date;
+
+  @Column({ default: false })
+  isPublished: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 }

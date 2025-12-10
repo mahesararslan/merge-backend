@@ -19,11 +19,12 @@ export class QuizAttempt {
   user: User;
 
   @Column({ nullable: true })
-  submittedAt: Date;
+  submittedAt: Date; 
 
   @Column('simple-json', { nullable: true })
   answers: any;
 
   @Column({ type: 'float', nullable: true })
   score: number;
+
 }

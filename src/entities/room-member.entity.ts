@@ -3,7 +3,7 @@ import {
   Entity, 
   PrimaryGeneratedColumn, 
   ManyToOne, 
-  OneToMany,
+  OneToOne,
   CreateDateColumn,
   UpdateDateColumn 
 } from 'typeorm';
@@ -23,11 +23,11 @@ export class RoomMember {
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   user: User;
 
-  @OneToMany(() => RoomPermissions, (perm) => perm.member)
-  roomPermissions: RoomPermissions[];
+  @OneToOne(() => RoomPermissions, (perm) => perm.member)
+  roomPermissions: RoomPermissions;
 
-  @OneToMany(() => LiveVideoPermissions, (perm) => perm.member)
-  liveVideoPermissions: LiveVideoPermissions[];
+  @OneToOne(() => LiveVideoPermissions, (perm) => perm.member)
+  liveVideoPermissions: LiveVideoPermissions;
 
   @CreateDateColumn()
   joinedAt: Date;

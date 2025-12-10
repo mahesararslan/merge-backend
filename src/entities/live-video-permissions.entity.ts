@@ -1,10 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
+// src/entities/live-video-permissions.entity.ts
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn } from 'typeorm';
 import { RoomMember } from './room-member.entity';
 
 @Entity('live_video_permissions')
 export class LiveVideoPermissions {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @OneToOne(() => RoomMember, (member) => member.liveVideoPermissions, { onDelete: 'CASCADE' })
+  @JoinColumn()
+  member: RoomMember;
 
   @Column({ default: false })
   can_ask_question: boolean;
@@ -20,7 +25,4 @@ export class LiveVideoPermissions {
 
   @Column({ default: false })
   can_open_web_cam: boolean;
-
-  @ManyToOne(() => RoomMember, (member) => member.liveVideoPermissions, { onDelete: 'CASCADE' })
-  member: RoomMember;
 }

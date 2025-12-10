@@ -20,6 +20,9 @@ export class QuizQuestion {
   @Column('simple-json')
   options: any; // store options array as JSON
 
+  @Column()
+  correctOption: string;
+
   @Column({ default: 1 })
   points: number;
 }

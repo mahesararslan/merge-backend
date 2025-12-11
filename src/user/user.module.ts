@@ -3,12 +3,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserService } from './user.service';
 import { UserController } from './user.controller';
 import { User } from 'src/entities/user.entity';
+import { UserAuth } from 'src/entities/user-auth.entity';
 import { TagModule } from 'src/tag/tag.module';
 import { RoomModule } from 'src/room/room.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, UserAuth]),
     TagModule,
     RoomModule,
   ],

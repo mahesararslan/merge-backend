@@ -6,8 +6,10 @@ import {
   UpdateDateColumn,
   ManyToMany,
   JoinTable,
+  OneToOne,
 } from 'typeorm';
 import { Tag } from './tag.entity';
+import { UserAuth } from './user-auth.entity';
 
 export enum UserRole {
   INSTRUCTOR = 'instructor',
@@ -53,31 +55,10 @@ export class User {
   tags: Tag[];
 
   @Column({ default: false })
-  isVerified: boolean;
-
-  @Column({ default: false })
   googleAccount: boolean;
 
-  @Column({ nullable: true })
-  hashedRefreshToken: string; 
-
-  @Column({ nullable: true })
-  verificationToken: string;
-
-  @Column({ nullable: true })
-  passwordResetToken: string;
-
-  @Column({ nullable: true })
-  passwordResetExpires: Date;
-
-  @Column({ default: false })
-  twoFactorEnabled: boolean;
-
-  @Column({ nullable: true })
-  otpCode: string;
-
-  @Column({ nullable: true })
-  otpExpires: Date;
+  @OneToOne(() => UserAuth, (auth) => auth.user, { cascade: true, eager: true })
+  auth: UserAuth;
 
   @CreateDateColumn()
   createdAt: Date;

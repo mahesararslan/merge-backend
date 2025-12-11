@@ -34,18 +34,18 @@ export class AuthService {
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.userService.findByEmail(email);
     if (!user) throw new UnauthorizedException('User not found');
-    if (!user.isVerified) {
+    if (!user.auth?.isVerified) {
       await this.mailService.sendVerificationEmail(
         user.email,
         `${user.firstName} ${user.lastName}` || 'User',
-        user.verificationToken,
+        user.auth?.verificationToken,
       );
       throw new UnauthorizedException('Please verify your email to login, A link has been sent to your email');
     }
 
     const isPasswordValid = await compare(password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid password');
-    return { id: user.id, email: user.email, twoFactorEnabled: user.twoFactorEnabled };
+    return { id: user.id, email: user.email, twoFactorEnabled: user.auth?.twoFactorEnabled };
   }
 
   async signup(createUserDto: CreateUserDto) {
@@ -59,7 +59,7 @@ export class AuthService {
       await this.mailService.sendVerificationEmail(
         user.email,
         `${user.firstName} ${user.lastName}` || 'User',
-        user.verificationToken,
+        user.auth?.verificationToken,
       );
     }
 
@@ -95,7 +95,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (!user.twoFactorEnabled) {
+    if (!user.auth?.twoFactorEnabled) {
       throw new BadRequestException('2FA is not enabled for this account');
     }
 
@@ -135,7 +135,7 @@ export class AuthService {
       await this.mailService.sendPasswordResetEmail(
         user.email,
         `${user.firstName} ${user.lastName}` || 'User',
-        user.passwordResetToken,
+        user.auth?.passwordResetToken,
       );
 
       return {
@@ -196,10 +196,10 @@ export class AuthService {
 
   async validateRefreshToken(userId: string, refreshToken: string) {
     const user = await this.userService.findOne(userId);
-    if (!user || !user.hashedRefreshToken)
+    if (!user || !user.auth?.hashedRefreshToken)
       throw new UnauthorizedException('Access Denied');
     const isRefreshTokenValid = await argon2.verify(
-      user.hashedRefreshToken,
+      user.auth.hashedRefreshToken,
       refreshToken,
     );
     if (!isRefreshTokenValid) throw new UnauthorizedException('Access Denied');
@@ -222,7 +222,7 @@ export class AuthService {
         throw new NotFoundException('User with this email does not exist');
     }
 
-    if (!user.twoFactorEnabled) {
+    if (!user.auth?.twoFactorEnabled) {
         throw new BadRequestException('2FA is not enabled for this account');
     }
 
@@ -255,7 +255,7 @@ export class AuthService {
       message: enable
         ? '2FA has been enabled for your account'
         : '2FA has been disabled for your account',
-      twoFactorEnabled: user.twoFactorEnabled,
+      twoFactorEnabled: user.auth?.twoFactorEnabled,
     };
   }
 

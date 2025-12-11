@@ -21,10 +21,11 @@ import { MailService } from 'src/mail/mail.service';
 import { UserModule } from 'src/user/user.module';
 import { TagModule } from 'src/tag/tag.module';
 import { RoomModule } from 'src/room/room.module';
+import { UserAuth } from 'src/entities/user-auth.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, UserAuth]),
     JwtModule.registerAsync(jwtConfig.asProvider()),
     ConfigModule.forFeature(jwtConfig),
     ConfigModule.forFeature(refreshJwtConfig),

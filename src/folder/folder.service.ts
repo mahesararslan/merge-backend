@@ -7,8 +7,7 @@ import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { Note } from '../entities/note.entity';
 import { File } from '../entities/file.entity';
-import { RoomMember } from '../entities/room-member.entity';
-import { RoomPermissions } from '../entities/room-permissions.entity';
+import { RoomMember, RoomMemberRole } from '../entities/room-member.entity';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
 import { QueryFolderDto } from './dto/query-folder.dto';
@@ -28,8 +27,6 @@ export class FolderService {
     private fileRepository: Repository<File>,
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
-    @InjectRepository(RoomPermissions)
-    private roomPermissionsRepository: Repository<RoomPermissions>,
   ) {}
 
   async create(createFolderDto: CreateFolderDto, userId: string): Promise<Folder> {
@@ -388,19 +385,15 @@ export class FolderService {
     // Room admin can always create folders
     if (room.admin.id === userId) return true;
 
-    // Check if user is a member with file permissions
+    // Check if user is a member with moderator role or higher
     const member = await this.roomMemberRepository.findOne({
       where: { room: { id: roomId }, user: { id: userId } },
     });
 
     if (!member) return false;
 
-    // Check permissions
-    const permissions = await this.roomPermissionsRepository.findOne({
-      where: { member: { id: member.id } },
-    });
-
-    return permissions?.can_add_files || false;
+    // Moderators can add files
+    return member.role === RoomMemberRole.MODERATOR;
   }
 
   private async canUserAccessRoom(userId: string, roomId: string): Promise<boolean> {

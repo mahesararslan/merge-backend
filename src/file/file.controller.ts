@@ -24,6 +24,9 @@ import { UploadFileDto } from './dto/upload-file.dto';
 import { QueryFileDto } from './dto/query-file.dto';
 import { UpdateFileDto } from './dto/update-file.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
+import { RoomRoleGuard } from 'src/room/guards/room-role.guard';
+import { RoomMemberRole } from 'src/entities/room-member.entity';
+import { RoomRoles } from 'src/room/decorators/room-roles.decorator';
 
 
 @Controller('files')
@@ -31,6 +34,8 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 export class FileController {
   constructor(private readonly fileService: FileService) {}
 
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MODERATOR)
   @Post('upload/course-content/:roomId')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))

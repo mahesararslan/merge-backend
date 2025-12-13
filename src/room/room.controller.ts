@@ -11,6 +11,7 @@ import {
   ParseUUIDPipe,
   UseInterceptors,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { RoomService } from './room.service';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -22,6 +23,9 @@ import { QueryUserRoomsDto } from './dto/query-user-rooms.dto';
 import { QueryAllRoomsDto } from './dto/query-all-rooms.dto';
 import { QueryUserFeedDto } from './dto/query-user-feed.dto';
 import { QueryRoomContentDto } from './dto/query-room-content.dto';
+import { RoomRoleGuard } from './guards/room-role.guard';
+import { RoomRoles } from './decorators/room-roles.decorator';
+import { RoomMemberRole } from 'src/entities/room-member.entity';
 
 @Controller('room')
 export class RoomController {
@@ -35,7 +39,7 @@ export class RoomController {
 
   // Get my rooms with filters
   @Get('my-rooms')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getMyRooms(@Query() queryDto: QueryUserRoomsDto, @Req() req) {
     return this.roomService.findUserRoomsWithFilter(queryDto, req.user.id);
   }
@@ -43,14 +47,14 @@ export class RoomController {
   // Get all public rooms with pagination and search
   @Public()
   @Get()
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   findAll(@Query() queryDto: QueryAllRoomsDto) {
     return this.roomService.findAll(queryDto);
   }
 
   // get rooms for user feed which are according to his interests(tags)
   @Get('feed')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getUserFeed(@Req() req, @Query() queryDto: QueryUserFeedDto) {
     return this.roomService.getUserFeed(req.user.id, queryDto);
   }
@@ -63,7 +67,7 @@ export class RoomController {
 
   // Get specific room by ID
   @Get(':id')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.roomService.findOne(id);
   }
@@ -92,13 +96,13 @@ export class RoomController {
 
   // Get room members
   @Get(':id/members')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getRoomMembers(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
     return this.roomService.getRoomMembers(id, req.user.id);
   }
 
   @Get(':id/course-content')
-  @UseInterceptors(CacheInterceptor)
+  // @UseInterceptors(CacheInterceptor)
   getRoomContent(
     @Param('id', ParseUUIDPipe) roomId: string,
     @Query() queryDto: QueryRoomContentDto,
@@ -106,4 +110,43 @@ export class RoomController {
   ) {
     return this.roomService.getRoomContent(roomId, queryDto, req.user.id);
   }
+
+  // Test endpoint 1 - Only moderators and admins can access
+  // @UseGuards(RoomRoleGuard) 
+  // @RoomRoles(RoomMemberRole.MODERATOR)
+  // @Get(':id/test-moderator') 
+  // testModerator(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
+  //   return { 
+  //     message: 'Access granted - Moderator or Admin only',
+  //     roomId: id,
+  //     userId: req.user.id,
+  //     userRole: req.roomMember?.role || 'unknown',
+  //   };
+  // }
+
+  // // Test endpoint 2 - Only admins can access
+  // @UseGuards(RoomRoleGuard)
+  // @RoomRoles(RoomMemberRole.ADMIN)
+  // @Get(':id/test-admin')
+  // testAdmin(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
+  //   return {
+  //     message: 'Access granted - Admin only',
+  //     roomId: id,
+  //     userId: req.user.id,
+  //     userRole: 'admin',
+  //   };
+  // }
+
+  // // Test endpoint 3 - All members, moderators, and admins can access
+  // @UseGuards(RoomRoleGuard)
+  // @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  // @Get(':id/test-all-members')
+  // testAllMembers(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
+  //   return {
+  //     message: 'Access granted - All members, moderators, and admin',
+  //     roomId: id,
+  //     userId: req.user.id,
+  //     userRole: req.roomMember?.role || 'unknown',
+  //   };
+  // }
 }

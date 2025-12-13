@@ -7,9 +7,9 @@ import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
 import { TagModule } from '../tag/tag.module';
 import { RoomMember } from 'src/entities/room-member.entity';
-import { RoomPermissions } from '../entities/room-permissions.entity';
 import { File } from '../entities/file.entity';
 import { Folder } from 'src/entities/folder.entity';
+import { RoomRoleGuard } from './guards/room-role.guard';
 
 @Module({
   imports: [
@@ -17,14 +17,13 @@ import { Folder } from 'src/entities/folder.entity';
       Room, 
       User, 
       RoomMember, 
-      RoomPermissions, 
       Folder,     
       File, 
     ]),
     TagModule,
   ],
   controllers: [RoomController],
-  providers: [RoomService],
-  exports: [RoomService],
+  providers: [RoomService, RoomRoleGuard],
+  exports: [RoomService, RoomRoleGuard],
 })
 export class RoomModule {}

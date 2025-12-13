@@ -4,13 +4,19 @@ import {
   PrimaryGeneratedColumn, 
   ManyToOne, 
   OneToOne,
+  Column,
   CreateDateColumn,
   UpdateDateColumn 
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
-import { RoomPermissions } from './room-permissions.entity';
 import { LiveVideoPermissions } from './live-video-permissions.entity';
+
+export enum RoomMemberRole {
+  MEMBER = 'member',
+  MODERATOR = 'moderator',
+  ADMIN = 'admin', // Pseudo-role for decorator only, not stored in DB
+}
 
 @Entity('room_members')
 export class RoomMember {
@@ -23,8 +29,12 @@ export class RoomMember {
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   user: User;
 
-  @OneToOne(() => RoomPermissions, (perm) => perm.member)
-  roomPermissions: RoomPermissions;
+  @Column({
+    type: 'enum',
+    enum: RoomMemberRole,
+    default: RoomMemberRole.MEMBER,
+  })
+  role: RoomMemberRole;
 
   @OneToOne(() => LiveVideoPermissions, (perm) => perm.member)
   liveVideoPermissions: LiveVideoPermissions;

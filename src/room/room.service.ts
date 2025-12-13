@@ -15,7 +15,6 @@ import { UpdateRoomDto } from './dto/update-room.dto';
 import { Tag } from 'src/entities/tag.entity';
 import { RoomMember } from '../entities/room-member.entity'; // Add this import
 import { QueryUserRoomsDto, RoomFilter } from './dto/query-user-rooms.dto';
-import { RoomPermissions } from '../entities/room-permissions.entity';
 import { Folder, FolderType } from '../entities/folder.entity';
 import { File } from '../entities/file.entity';
 import { QueryRoomContentDto } from './dto/query-room-content.dto';
@@ -29,8 +28,6 @@ export class RoomService {
     private userRepository: Repository<User>,
     @InjectRepository(RoomMember) // Add this
     private roomMemberRepository: Repository<RoomMember>,
-    @InjectRepository(RoomPermissions)
-    private roomPermissionsRepository: Repository<RoomPermissions>,
     @InjectRepository(Folder)
     private folderRepository: Repository<Folder>,
     @InjectRepository(File)
@@ -318,6 +315,17 @@ export class RoomService {
     await this.roomRepository.remove(room);
   }
 
+  async findByRoomCode(roomCode: string): Promise<Room> {
+    const room = await this.roomRepository.findOne({
+      where: { roomCode },
+      relations: ['admin', 'tags'],
+    });
+    if (!room) {
+      throw new NotFoundException('Room not found');
+    }
+    return room;
+  }
+
   async joinRoom(roomCode: string, userId: string) {
     const room = await this.findByRoomCode(roomCode);
     const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -441,6 +449,35 @@ export class RoomService {
       relations: ['user'],
       order: { joinedAt: 'ASC' },
     });
+  }
+
+  async updateMemberRole(
+    roomId: string,
+    memberId: string,
+    newRole: string,
+    adminId: string,
+  ): Promise<RoomMember> {
+    const room = await this.findOne(roomId);
+
+    // Only room admin can update member roles
+    if (room.admin.id !== adminId) {
+      throw new ForbiddenException('Only room admin can update member roles');
+    }
+
+    const member = await this.roomMemberRepository.findOne({
+      where: {
+        id: memberId,
+        room: { id: roomId },
+      },
+      relations: ['user', 'room'],
+    });
+
+    if (!member) {
+      throw new NotFoundException('Member not found in this room');
+    }
+
+    member.role = newRole as any;
+    return this.roomMemberRepository.save(member);
   }
 
   async findUserRoomsWithFilter(queryDto: QueryUserRoomsDto, userId: string) {
@@ -620,10 +657,6 @@ export class RoomService {
           where: { room: { id: member.room.id } },
         });
 
-        const permissions = await this.roomPermissionsRepository.findOne({
-          where: { member: { id: member.id } },
-        });
-
         // Get 7 member previews (excluding admin)
         const memberPreviews = await this.roomMemberRepository.find({
           where: { room: { id: member.room.id } },
@@ -649,9 +682,9 @@ export class RoomService {
             image: member.room.admin.image,
           },
           type: 'joined',
-          userRole: 'member',
+          userRole: member.role, // Use actual role from member
           memberCount: memberCount + 1, // +1 for admin
-          permissions,
+          role: member.role, // Include role field
           joinedAt: member.joinedAt,
           members: membersList,
         };
@@ -844,6 +877,7 @@ export class RoomService {
       .createQueryBuilder('folder')
       .leftJoinAndSelect('folder.room', 'room')
       .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
+      .leftJoinAndSelect('folder.owner', 'owner')
       .where('folder.room.id = :roomId AND folder.type = :folderType', {
         roomId,
         folderType: FolderType.ROOM,
@@ -959,7 +993,7 @@ export class RoomService {
       }
     }
 
-    // Add counts to folders
+    // Add counts to folders and format owner info
     const foldersWithCounts = await Promise.all(
       folders.map(async (folder) => {
         const [subfolderCount, fileCount] = await Promise.all([
@@ -973,6 +1007,13 @@ export class RoomService {
 
         return {
           ...folder,
+          owner: folder.owner ? {
+            id: folder.owner.id,
+            firstName: folder.owner.firstName,
+            lastName: folder.owner.lastName,
+            email: folder.owner.email,
+            image: folder.owner.image,
+          } : null,
           subfolderCount,
           fileCount,
           totalItems: subfolderCount + fileCount,
@@ -980,12 +1021,24 @@ export class RoomService {
       })
     );
 
+    // Format files to include uploader info
+    const filesWithUploaderInfo = files.map(file => ({
+      ...file,
+      uploader: file.uploader ? {
+        id: file.uploader.id,
+        firstName: file.uploader.firstName,
+        lastName: file.uploader.lastName,
+        email: file.uploader.email,
+        image: file.uploader.image,
+      } : null,
+    }));
+
     // Get user's role in the room for permission context
     const userRole = await this.getUserRoleInRoom(userId, roomId);
 
     return {
       folders: foldersWithCounts,
-      files,
+      files: filesWithUploaderInfo,
       total: {
         folders: totalFolders,
         files: totalFiles,

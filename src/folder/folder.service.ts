@@ -61,12 +61,6 @@ export class FolderService {
       if (!room) {
         throw new NotFoundException('Room not found');
       }
-
-      // Check if user has permission to create folders in this room
-      const canCreateFolder = await this.canUserCreateFoldersInRoom(userId, createFolderDto.roomId);
-      if (!canCreateFolder) {
-        throw new ForbiddenException('You do not have permission to create folders in this room');
-      }
     }
 
     // Validate parent folder

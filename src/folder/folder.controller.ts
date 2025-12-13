@@ -19,6 +19,9 @@ import { CreateFolderDto } from './dto/create-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
 import { QueryFolderDto } from './dto/query-folder.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
+import { RoomRoleGuard } from 'src/room/guards/room-role.guard';
+import { RoomRoles } from 'src/room/decorators/room-roles.decorator';
+import { RoomMemberRole } from 'src/entities/room-member.entity';
 
 
 @Controller('folders')
@@ -26,6 +29,8 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 export class FolderController {
   constructor(private readonly folderService: FolderService) {}
 
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MODERATOR)
   @Post('create')
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createFolderDto: CreateFolderDto, @Req() req) {

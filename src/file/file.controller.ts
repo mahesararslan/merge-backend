@@ -57,6 +57,8 @@ export class FileController {
     return this.fileService.uploadFile(file, dto, req.user.id);
   }
 
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MODERATOR)
   @Post('upload/course-content/:roomId/:folderId')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file'))

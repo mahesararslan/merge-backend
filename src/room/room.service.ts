@@ -832,12 +832,6 @@ export class RoomService {
   }> {
     const { page, limit, sortBy, sortOrder, search, folderId } = queryDto;
 
-    // First, verify user has access to this room
-    const hasAccess = await this.checkUserRoomAccess(userId, roomId);
-    if (!hasAccess) {
-      throw new ForbiddenException('You do not have access to this room');
-    }
-
     // Get room info
     const room = await this.roomRepository.findOne({
       where: { id: roomId },

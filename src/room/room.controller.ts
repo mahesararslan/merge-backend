@@ -101,6 +101,8 @@ export class RoomController {
     return this.roomService.getRoomMembers(id, req.user.id);
   }
 
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   @Get(':id/course-content')
   // @UseInterceptors(CacheInterceptor)
   getRoomContent(

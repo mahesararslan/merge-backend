@@ -69,7 +69,8 @@ export class RoomService {
       tags,
     });
 
-    return this.roomRepository.save(room);
+    const savedRoom = await this.roomRepository.save(room);
+    return this.formatRoomResponse(savedRoom);
   }
 
   // Extract room code generation to separate method
@@ -121,8 +122,10 @@ export class RoomService {
       .take(limit)
       .getManyAndCount();
 
+    const formattedRooms = rooms.map(room => this.formatRoomResponse(room));
+
     return {
-      rooms,
+      rooms: formattedRooms,
       total,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
@@ -148,7 +151,7 @@ export class RoomService {
       throw new NotFoundException(`Room with ID ${id} not found`);
     }
 
-    return room;
+    return this.formatRoomResponse(room);
   }
 
   // Add this method to src/room/room.service.ts
@@ -227,7 +230,7 @@ export class RoomService {
           : 0;
 
         return {
-          ...room,
+          ...this.formatRoomResponse(room),
           memberCount,
           tagMatches,
           isRecommended: tagMatches > 0,
@@ -301,7 +304,8 @@ export class RoomService {
     if (updateRoomDto.isPublic !== undefined)
       room.isPublic = updateRoomDto.isPublic;
 
-    return this.roomRepository.save(room);
+    const savedRoom = await this.roomRepository.save(room);
+    return this.formatRoomResponse(savedRoom);
   }
 
   async delete(id: string, userId: string): Promise<void> {
@@ -346,7 +350,7 @@ export class RoomService {
       return {
         success: true,
         message: `You are already a member of ${room.title}`,
-        room,
+        room: this.formatRoomResponse(room),
       };
     }
 
@@ -355,7 +359,7 @@ export class RoomService {
       return {
         success: true,
         message: `You are the admin of ${room.title}`,
-        room,
+        room: this.formatRoomResponse(room),
       };
     }
 
@@ -370,7 +374,7 @@ export class RoomService {
     return {
       success: true,
       message: `Successfully joined ${room.title}`,
-      room,
+      room: this.formatRoomResponse(room),
     };
   }
 
@@ -444,11 +448,18 @@ export class RoomService {
       );
     }
 
-    return this.roomMemberRepository.find({
+    const members = await this.roomMemberRepository.find({
       where: { room: { id: roomId } },
       relations: ['user'],
       order: { joinedAt: 'ASC' },
     });
+
+    return members.map(member => ({
+      id: member.id,
+      role: member.role,
+      joinedAt: member.joinedAt,
+      user: this.formatUserInfo(member.user),
+    }));
   }
 
   async updateMemberRole(
@@ -477,7 +488,14 @@ export class RoomService {
     }
 
     member.role = newRole as any;
-    return this.roomMemberRepository.save(member);
+    const savedMember = await this.roomMemberRepository.save(member);
+    
+    return {
+      id: savedMember.id,
+      role: savedMember.role,
+      joinedAt: savedMember.joinedAt,
+      user: this.formatUserInfo(savedMember.user),
+    };
   }
 
   async findUserRoomsWithFilter(queryDto: QueryUserRoomsDto, userId: string) {
@@ -1080,5 +1098,30 @@ export class RoomService {
     }
 
     return breadcrumb;
+  }
+
+  private formatUserInfo(user: User) {
+    if (!user) return null;
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      image: user.image,
+    };
+  }
+
+  private formatRoomResponse(room: Room) {
+    return {
+      id: room.id,
+      title: room.title,
+      description: room.description,
+      isPublic: room.isPublic,
+      roomCode: room.roomCode,
+      admin: this.formatUserInfo(room.admin),
+      tags: room.tags?.map(tag => ({ id: tag.id, name: tag.name })) || [],
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+    };
   }
 }

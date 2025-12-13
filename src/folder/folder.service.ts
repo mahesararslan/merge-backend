@@ -118,7 +118,8 @@ export class FolderService {
     folder.room = room;
     folder.parentFolder = parentFolder;
 
-    return this.folderRepository.save(folder);
+    const savedFolder = await this.folderRepository.save(folder);
+    return this.formatFolderResponse(savedFolder, true);
   }
 
   async findAll(queryDto: QueryFolderDto, userId: string): Promise<{
@@ -194,7 +195,7 @@ export class FolderService {
 
     // Format the response
     const folders = foldersWithCount.entities.map((folder, index) => ({
-      ...folder,
+      ...this.formatFolderResponse(folder, true),
       noteCount: parseInt(foldersWithCount.raw[index].noteCount) || 0,
       fileCount: parseInt(foldersWithCount.raw[index].fileCount) || 0,
       subfolderCount: parseInt(foldersWithCount.raw[index].subfolderCount) || 0,
@@ -258,7 +259,7 @@ export class FolderService {
       }));
 
     return {
-      ...folder,
+      ...this.formatFolderResponse(folder, true),
       noteCount: folder.notes.length,
       fileCount: folder.files.length,
       subfolderCount: folder.subfolders.length,
@@ -323,7 +324,8 @@ export class FolderService {
       folder.name = updateFolderDto.name;
     }
 
-    return this.folderRepository.save(folder);
+    const savedFolder = await this.folderRepository.save(folder);
+    return this.formatFolderResponse(savedFolder, true);
   }
 
   async remove(id: string, userId: string): Promise<{ 

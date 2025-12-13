@@ -127,7 +127,8 @@ export class FileService {
       fileEntity.type = fileType;
       fileEntity.size = file.size;
 
-      return this.fileRepository.save(fileEntity);
+      const savedFile = await this.fileRepository.save(fileEntity);
+      return this.formatFileResponse(savedFile, true);
     } catch (error) {
       if (error.response) {
         throw new BadRequestException(`Upload service error: ${error.response.data?.message || 'Unknown error'}`);
@@ -194,8 +195,10 @@ export class FileService {
 
     const [files, total] = await queryBuilder.getManyAndCount();
 
+    const formattedFiles = files.map(file => this.formatFileResponse(file, true));
+
     return {
-      files,
+      files: formattedFiles,
       total,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
@@ -226,7 +229,7 @@ export class FileService {
       }
     }
 
-    return file;
+    return this.formatFileResponse(file, true);
   }
 
   async updateFile(id: string, updateFileDto: UpdateFileDto, userId: string): Promise<File> {

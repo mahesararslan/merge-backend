@@ -68,45 +68,32 @@ export class UserService {
   async findOne(id: string): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { id },
-      relations: ['auth'],
+      relations: ['auth', 'tags'],
     });
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
-    // Flatten auth fields for backward compatibility
-    return {
-      ...user,
-      isVerified: user.auth?.isVerified,
-      hashedRefreshToken: user.auth?.hashedRefreshToken,
-      twoFactorEnabled: user.auth?.twoFactorEnabled,
-      verificationToken: user.auth?.verificationToken,
-      passwordResetToken: user.auth?.passwordResetToken,
-      passwordResetExpires: user.auth?.passwordResetExpires,
-      otpCode: user.auth?.otpCode,
-      otpExpires: user.auth?.otpExpires,
-    } as any;
+    
+    const profile = this.formatUserProfile(user, true);
+    profile.tags = user.tags?.map(tag => this.formatTagInfo(tag)) || [];
+    
+    return profile as any;
   }
 
   // for getting account details of other users.
   async getProfileWithID(id: string) {
     const user = await this.userRepository.findOne({
       where: { id },
-      // select everything other than the password
-      select: [
-        'id',
-        'email',
-        'firstName',
-        'lastName',
-        'role',
-        'image',
-        'new_user',
-        'createdAt',
-      ],
+      relations: ['tags'],
     });
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
-    return user;
+    
+    const profile = this.formatUserProfile(user, false);
+    profile.tags = user.tags?.map(tag => this.formatTagInfo(tag)) || [];
+    
+    return profile;
   }
 
   async findByEmail(email: string) {
@@ -117,10 +104,13 @@ export class UserService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const user = await this.userRepository.update(id, updateUserDto);
-    if (user.affected === 0) {
+    const updateResult = await this.userRepository.update(id, updateUserDto);
+    if (updateResult.affected === 0) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
+    
+    // Return updated user profile
+    return this.findOne(id);
   }
 
   async updatePassword(userId: string, updatePasswordDto: UpdatePasswordDto) {
@@ -335,7 +325,7 @@ export class UserService {
   async setUserTags(userId: string, tagNames: string[]): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['tags'],
+      relations: ['tags', 'auth'],
     });
 
     if (!user) {
@@ -353,12 +343,15 @@ export class UserService {
       user.new_user = false;
     }
 
-    const updatedUser = await this.userRepository.save(user);
+    await this.userRepository.save(user);
 
     // Invalidate cache
     // await this.cacheService.invalidateUserCache(userId);
 
-    return updatedUser;
+    const profile = this.formatUserProfile(user, true);
+    profile.tags = tags.map(tag => this.formatTagInfo(tag));
+    
+    return profile as any;
   }
 
   async getUserTags(userId: string): Promise<Tag[]> {
@@ -371,10 +364,39 @@ export class UserService {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    return user.tags;
+    return user.tags?.map(tag => this.formatTagInfo(tag)) || [];
   }
 
   async findUserRooms(userId: string, queryDto: any) {
     return this.roomService.findUserRoomsWithFilter(queryDto, userId);
+  }
+
+  private formatUserProfile(user: User, includeAuth = false) {
+    const profile: any = {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      image: user.image,
+      new_user: user.new_user,
+      googleAccount: user.googleAccount,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+
+    if (includeAuth && user.auth) {
+      profile.isVerified = user.auth.isVerified;
+      profile.twoFactorEnabled = user.auth.twoFactorEnabled;
+    }
+
+    return profile;
+  }
+
+  private formatTagInfo(tag: Tag) {
+    return {
+      id: tag.id,
+      name: tag.name,
+    };
   }
 }

@@ -13,23 +13,26 @@ export class Assignment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Room, { nullable: true })
+  @ManyToOne(() => Room, { nullable: false })
   room: Room;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { nullable: false })
   author: User;
 
   @Column()
   title: string;
 
-  @Column({ nullable: true })
-  description: string;
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
 
-  @Column({ nullable: true })
-  startAt: Date;
+  @Column()
+  assignmentUrl: string;
 
-  @Column({ nullable: true })
-  endAt: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  startAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  endAt: Date | null;
 
   @Column({ default: false })
   isTurnInLateEnabled: boolean;

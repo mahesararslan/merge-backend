@@ -8,6 +8,7 @@ import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { Folder } from '../entities/folder.entity';
 import { RoomMember } from '../entities/room-member.entity';
+import { Assignment } from '../entities/assignment.entity';
 import { UploadFileDto } from './dto/upload-file.dto';
 import { QueryFileDto } from './dto/query-file.dto';
 import { UpdateFileDto } from './dto/update-file.dto';
@@ -27,6 +28,8 @@ export class FileService {
     private folderRepository: Repository<Folder>,
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
+    @InjectRepository(Assignment)
+    private assignmentRepository: Repository<Assignment>,
     private configService: ConfigService,
     private s3Service: S3Service,
   ) {}
@@ -149,6 +152,8 @@ export class FileService {
     roomId?: string,
     folderId?: string,
     userId?: string,
+    uploadType?: 'assignment' | 'attempt',
+    assignmentId?: string,
   ): Promise<{
     uploadUrl: string;
     fileKey: string;
@@ -167,11 +172,53 @@ export class FileService {
       throw new BadRequestException('File size exceeds 50MB limit');
     }
 
+    // Handle assignment uploads - verify admin permission
+    if (uploadType === 'assignment' && roomId) {
+      const room = await this.roomRepository.findOne({
+        where: { id: roomId },
+        relations: ['admin'],
+      });
+
+      if (!room) {
+        throw new NotFoundException('Room not found');
+      }
+
+      if (room.admin.id !== userId) {
+        throw new ForbiddenException('Only room admin can upload assignment files');
+      }
+    }
+
+    // Handle attempt uploads - verify member access
+    if (uploadType === 'attempt' && assignmentId) {
+      const assignment = await this.assignmentRepository.findOne({
+        where: { id: assignmentId },
+        relations: ['room'],
+      });
+
+      if (!assignment) {
+        throw new NotFoundException('Assignment not found');
+      }
+
+      // Check if user is a member or admin
+      const hasAccess = await this.checkRoomAccess(userId, assignment.room.id);
+      if (!hasAccess) {
+        throw new ForbiddenException('You do not have access to submit to this assignment');
+      }
+
+      roomId = assignment.room.id; // Set roomId from assignment
+    }
+
     // Determine folder structure
     let folder = 'personal-files';
     let subfolder = userId;
 
-    if (roomId) {
+    if (uploadType === 'assignment') {
+      folder = 'assignment-files';
+      subfolder = roomId;
+    } else if (uploadType === 'attempt') {
+      folder = 'attempt-files';
+      subfolder = assignmentId;
+    } else if (roomId) {
       folder = 'room-files';
       subfolder = roomId;
     }

@@ -1,4 +1,3 @@
-// src/file/file.controller.ts
 import {
   Controller,
   Get,
@@ -108,12 +107,6 @@ export class FileController {
     return this.fileService.deleteFile(id, req.user.id);
   }
 
-  // ============= PRESIGNED URL ROUTES (NEW - FASTER!) =============
-
-  /**
-   * Generate presigned URL for direct S3 upload (Personal Files)
-   * POST /files/presigned-url
-   */
   @Post('presigned-url')
   @HttpCode(HttpStatus.OK)
   async generatePresignedUrl(
@@ -197,6 +190,51 @@ export class FileController {
       req.user.id,
       roomId,
       dto.folderId,
+    );
+  }
+
+  /**
+   * Generate presigned URL for assignment file upload (Admin only - handled in service)
+   * POST /files/presigned-url/assignment/:roomId
+   */
+  @Post('presigned-url/assignment/:roomId')
+  @HttpCode(HttpStatus.OK)
+  async generateAssignmentPresignedUrl(
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Body() dto: GeneratePresignedUrlDto,
+    @Req() req,
+  ) {
+    return this.fileService.generatePresignedUrl(
+      dto.originalName,
+      dto.contentType,
+      dto.size,
+      roomId,
+      undefined, // no folderId for assignments
+      req.user.id,
+      'assignment',
+    );
+  }
+
+  /**
+   * Generate presigned URL for assignment attempt file upload (Members)
+   * POST /files/presigned-url/attempt/:assignmentId
+   */
+  @Post('presigned-url/attempt/:assignmentId')
+  @HttpCode(HttpStatus.OK)
+  async generateAttemptPresignedUrl(
+    @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
+    @Body() dto: GeneratePresignedUrlDto,
+    @Req() req,
+  ) {
+    return this.fileService.generatePresignedUrl(
+      dto.originalName,
+      dto.contentType,
+      dto.size,
+      undefined, // roomId will be fetched from assignmentId in service
+      undefined, // no folderId for attempts
+      req.user.id,
+      'attempt',
+      assignmentId,
     );
   }
 }

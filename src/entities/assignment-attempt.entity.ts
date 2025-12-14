@@ -12,18 +12,18 @@ export class AssignmentAttempt {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { nullable: false })
   user: User;
 
-  @ManyToOne(() => Assignment)
+  @ManyToOne(() => Assignment, { nullable: false })
   assignment: Assignment;
 
   @Column()
   fileUrl: string;
 
-  @Column()
+  @Column({ type: 'timestamp' })
   submitAt: Date;
 
   @Column({ type: 'float', nullable: true })
-  score: number;
+  score: number | null;
 }

@@ -8,7 +8,8 @@ import { Room } from '../entities/room.entity';
 import { Note } from '../entities/note.entity';
 import { File } from '../entities/file.entity';
 import { RoomMember, RoomMemberRole } from '../entities/room-member.entity';
-import { CreateFolderDto } from './dto/create-folder.dto';
+import { CreateRoomFolderDto } from './dto/create-room-folder.dto';
+import { CreateNotesFolderDto } from './dto/create-notes-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
 import { QueryFolderDto } from './dto/query-folder.dto';
 
@@ -29,7 +30,7 @@ export class FolderService {
     private roomMemberRepository: Repository<RoomMember>,
   ) {}
 
-  async create(createFolderDto: CreateFolderDto, userId: string): Promise<Folder> {
+  async createRoomFolder(createFolderDto: CreateRoomFolderDto, userId: string): Promise<any> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
@@ -38,32 +39,19 @@ export class FolderService {
       throw new NotFoundException('User not found');
     }
 
-    let room = null;
-    let parentFolder = null;
+    // Get room and verify access
+    const room = await this.roomRepository.findOne({
+      where: { id: createFolderDto.roomId },
+      relations: ['admin'],
+    });
 
-    // Validate based on folder type
-    if (createFolderDto.type === FolderType.NOTES) {
-      // Notes folder - user specific, no room required
-      if (createFolderDto.roomId) {
-        throw new ConflictException('Notes folders cannot be associated with rooms');
-      }
-    } else if (createFolderDto.type === FolderType.ROOM) {
-      // Room folder - room required
-      if (!createFolderDto.roomId) {
-        throw new ConflictException('Room ID is required for room folders');
-      }
-
-      room = await this.roomRepository.findOne({
-        where: { id: createFolderDto.roomId },
-        relations: ['admin'],
-      });
-
-      if (!room) {
-        throw new NotFoundException('Room not found');
-      }
+    if (!room) {
+      throw new NotFoundException('Room not found');
     }
 
-    // Validate parent folder
+    let parentFolder: Folder | null = null;
+
+    // Validate parent folder if provided
     if (createFolderDto.parentFolderId) {
       parentFolder = await this.folderRepository.findOne({
         where: { id: createFolderDto.parentFolderId },
@@ -75,35 +63,23 @@ export class FolderService {
       }
 
       // Check type consistency
-      if (parentFolder.type !== createFolderDto.type) {
-        throw new ConflictException('Parent folder must be of the same type');
+      if (parentFolder.type !== FolderType.ROOM) {
+        throw new ConflictException('Parent folder must be a room folder');
       }
 
-      // Check access to parent folder
-      if (createFolderDto.type === FolderType.NOTES) {
-        if (parentFolder.owner.id !== userId) {
-          throw new ForbiddenException('You can only create subfolders in your own note folders');
-        }
-      } else {
-        if (parentFolder.room?.id !== createFolderDto.roomId) {
-          throw new ConflictException('Parent folder must be in the same room');
-        }
+      // Check if parent folder is in the same room
+      if (parentFolder.room?.id !== createFolderDto.roomId) {
+        throw new ConflictException('Parent folder must be in the same room');
       }
     }
 
     // Check for duplicate names at the same level
     const whereClause: any = {
       name: createFolderDto.name,
-      type: createFolderDto.type,
+      type: FolderType.ROOM,
+      room: { id: createFolderDto.roomId },
       parentFolder: createFolderDto.parentFolderId ? { id: createFolderDto.parentFolderId } : IsNull(),
     };
-
-    if (createFolderDto.type === FolderType.NOTES) {
-      whereClause.owner = { id: userId };
-      whereClause.room = IsNull();
-    } else {
-      whereClause.room = { id: createFolderDto.roomId };
-    }
 
     const existingFolder = await this.folderRepository.findOne({ where: whereClause });
 
@@ -113,9 +89,68 @@ export class FolderService {
 
     const folder = new Folder();
     folder.name = createFolderDto.name;
-    folder.type = createFolderDto.type;
+    folder.type = FolderType.ROOM;
     folder.owner = user;
     folder.room = room;
+    folder.parentFolder = parentFolder;
+
+    const savedFolder = await this.folderRepository.save(folder);
+    return this.formatFolderResponse(savedFolder, true);
+  }
+
+  async createNotesFolder(createFolderDto: CreateNotesFolderDto, userId: string): Promise<any> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    let parentFolder: Folder | null = null;
+
+    // Validate parent folder if provided
+    if (createFolderDto.parentFolderId) {
+      parentFolder = await this.folderRepository.findOne({
+        where: { id: createFolderDto.parentFolderId },
+        relations: ['owner', 'room'],
+      });
+
+      if (!parentFolder) {
+        throw new NotFoundException('Parent folder not found');
+      }
+
+      // Check type consistency
+      if (parentFolder.type !== FolderType.NOTES) {
+        throw new ConflictException('Parent folder must be a notes folder');
+      }
+
+      // Check access to parent folder
+      if (parentFolder.owner.id !== userId) {
+        throw new ForbiddenException('You can only create subfolders in your own note folders');
+      }
+    }
+
+    // Check for duplicate names at the same level
+    const whereClause: any = {
+      name: createFolderDto.name,
+      type: FolderType.NOTES,
+      owner: { id: userId },
+      room: IsNull(),
+      parentFolder: createFolderDto.parentFolderId ? { id: createFolderDto.parentFolderId } : IsNull(),
+    };
+
+    const existingFolder = await this.folderRepository.findOne({ where: whereClause });
+
+    if (existingFolder) {
+      throw new ConflictException('A folder with this name already exists at this level');
+    }
+
+    const folder = new Folder();
+    folder.name = createFolderDto.name;
+    folder.type = FolderType.NOTES;
+    folder.owner = user;
+    folder.room = null;
     folder.parentFolder = parentFolder;
 
     const savedFolder = await this.folderRepository.save(folder);
@@ -129,7 +164,7 @@ export class FolderService {
     currentPage: number;
     breadcrumb?: any[];
   }> {
-    const { page, limit, sortBy, sortOrder, search, type, roomId, parentFolderId } = queryDto;
+    const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC', search, type, roomId, parentFolderId } = queryDto;
     const skip = (page - 1) * limit;
 
     let queryBuilder = this.folderRepository
@@ -202,7 +237,7 @@ export class FolderService {
     }));
 
     // Generate breadcrumb if we're in a subfolder
-    let breadcrumb = [];
+    let breadcrumb: any[] = [];
     if (parentFolderId) {
       breadcrumb = await this.generateBreadcrumb(parentFolderId);
     }
@@ -315,7 +350,7 @@ export class FolderService {
 
         folder.parentFolder = newParent;
       } else {
-        folder.parentFolder = null;
+        folder.parentFolder = null as any;
       }
     }
 
@@ -507,11 +542,11 @@ export class FolderService {
       if (current.id === ancestorId) {
         return true;
       }
-      current = await this.folderRepository.findOne({
+      const temp = await this.folderRepository.findOne({
         where: { id: current.id },
         relations: ['parentFolder'],
       });
-      current = current?.parentFolder;
+      current = temp?.parentFolder || null;
     }
 
     return false;
@@ -571,5 +606,50 @@ export class FolderService {
       notes: deletedNotes,
       files: deletedFiles,
     };
+  }
+
+  // Formatting helper methods
+  private formatUserInfo(user: User): any {
+    if (!user) return null;
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      image: user.image,
+    };
+  }
+
+  private formatRoomInfo(room: Room): any {
+    if (!room) return null;
+    return {
+      id: room.id,
+      title: room.title,
+    };
+  }
+
+  private formatFolderResponse(folder: Folder, includeRelations: boolean = false): any {
+    const response: any = {
+      id: folder.id,
+      name: folder.name,
+      type: folder.type,
+      createdAt: folder.createdAt,
+      updatedAt: folder.updatedAt,
+    };
+
+    if (includeRelations) {
+      response.owner = this.formatUserInfo(folder.owner);
+      response.room = this.formatRoomInfo(folder.room);
+      
+      if (folder.parentFolder) {
+        response.parentFolder = {
+          id: folder.parentFolder.id,
+          name: folder.parentFolder.name,
+          type: folder.parentFolder.type,
+        };
+      }
+    }
+
+    return response;
   }
 }

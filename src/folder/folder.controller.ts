@@ -15,7 +15,8 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { FolderService } from './folder.service';
-import { CreateFolderDto } from './dto/create-folder.dto';
+import { CreateRoomFolderDto } from './dto/create-room-folder.dto';
+import { CreateNotesFolderDto } from './dto/create-notes-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
 import { QueryFolderDto } from './dto/query-folder.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
@@ -31,10 +32,16 @@ export class FolderController {
 
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MODERATOR)
-  @Post('create')
+  @Post('create/room-folder')
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() createFolderDto: CreateFolderDto, @Req() req) {
-    return this.folderService.create(createFolderDto, req.user.id);
+  createRoomFolder(@Body() createFolderDto: CreateRoomFolderDto, @Req() req) {
+    return this.folderService.createRoomFolder(createFolderDto, req.user.id);
+  }
+
+  @Post('create/notes-folder')
+  @HttpCode(HttpStatus.CREATED)
+  createNotesFolder(@Body() createFolderDto: CreateNotesFolderDto, @Req() req) {
+    return this.folderService.createNotesFolder(createFolderDto, req.user.id);
   }
 
   @Get()

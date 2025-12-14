@@ -17,6 +17,7 @@ import { NoteModule } from './note/note.module';
 import { FolderModule } from './folder/folder.module';
 import { FileModule } from './file/file.module';
 import { QuizModule } from './quiz/quiz.module';
+import { AssignmentModule } from './assignment/assignment.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { QuizModule } from './quiz/quiz.module';
     FolderModule,
     FileModule,
     QuizModule,
+    AssignmentModule,
   ],
   controllers: [AppController],
   providers: [

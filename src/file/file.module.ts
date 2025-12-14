@@ -9,6 +9,7 @@ import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { Folder } from '../entities/folder.entity';
 import { RoomMember } from '../entities/room-member.entity';
+import { Assignment } from '../entities/assignment.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { RoomMember } from '../entities/room-member.entity';
       Room,
       Folder,
       RoomMember,
+      Assignment,
     ]),
   ],
   controllers: [FileController],

@@ -11,6 +11,7 @@ import { RoomMember } from '../entities/room-member.entity';
 import { UploadFileDto } from './dto/upload-file.dto';
 import { QueryFileDto } from './dto/query-file.dto';
 import { UpdateFileDto } from './dto/update-file.dto';
+import { S3Service } from './s3.service';
 import axios from 'axios';
 
 @Injectable()
@@ -27,6 +28,7 @@ export class FileService {
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
     private configService: ConfigService,
+    private s3Service: S3Service,
   ) {}
 
   async uploadFile(
@@ -135,6 +137,153 @@ export class FileService {
       }
       throw new BadRequestException('Failed to upload file to external service');
     }
+  }
+
+  /**
+   * Generate presigned URL for direct S3 upload
+   */
+  async generatePresignedUrl(
+    originalName: string,
+    contentType: string,
+    size: number,
+    roomId?: string,
+    folderId?: string,
+    userId?: string,
+  ): Promise<{
+    uploadUrl: string;
+    fileKey: string;
+    fileUrl: string;
+    metadata: {
+      originalName: string;
+      contentType: string;
+      size: number;
+      roomId?: string;
+      folderId?: string;
+    };
+  }> {
+    // Validate size (50MB limit)
+    const maxSize = 50 * 1024 * 1024;
+    if (size > maxSize) {
+      throw new BadRequestException('File size exceeds 50MB limit');
+    }
+
+    // Determine folder structure
+    let folder = 'personal-files';
+    let subfolder = userId;
+
+    if (roomId) {
+      folder = 'room-files';
+      subfolder = roomId;
+    }
+
+    // Generate unique file key
+    const fileKey = this.s3Service.generateFileKey(originalName, folder, subfolder);
+
+    // Generate presigned URL (expires in 5 minutes)
+    const { uploadUrl, fileUrl } = await this.s3Service.generatePresignedUploadUrl(
+      fileKey,
+      contentType,
+      300, // 5 minutes
+    );
+
+    return {
+      uploadUrl,
+      fileKey,
+      fileUrl,
+      metadata: {
+        originalName,
+        contentType,
+        size,
+        roomId,
+        folderId,
+      },
+    };
+  }
+
+  /**
+   * Save file metadata after successful S3 upload
+   */
+  async saveFileMetadata(
+    fileKey: string,
+    fileUrl: string,
+    originalName: string,
+    contentType: string,
+    size: number,
+    userId: string,
+    roomId?: string,
+    folderId?: string,
+  ): Promise<File> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    let folder = null;
+    let room = null;
+
+    // Validate folder if provided
+    if (folderId) {
+      folder = await this.folderRepository.findOne({
+        where: { id: folderId },
+        relations: ['owner', 'room'],
+      });
+
+      if (!folder) {
+        throw new NotFoundException('Folder not found');
+      }
+
+      // Check folder access
+      if (!folder.room) {
+        if (folder.owner.id !== userId) {
+          throw new ForbiddenException('You can only upload to your own folders');
+        }
+      } else {
+        const canAccess = await this.canUserAccessRoom(userId, folder.room.id);
+        if (!canAccess) {
+          throw new ForbiddenException('You do not have access to this room folder');
+        }
+        room = folder.room;
+      }
+    }
+
+    // Validate room if provided separately
+    if (roomId && !room) {
+      room = await this.roomRepository.findOne({
+        where: { id: roomId },
+        relations: ['admin'],
+      });
+
+      if (!room) {
+        throw new NotFoundException('Room not found');
+      }
+
+      const canAccess = await this.canUserAccessRoom(userId, roomId);
+      if (!canAccess) {
+        throw new ForbiddenException('You do not have access to this room');
+      }
+    }
+
+    // Determine file type based on MIME type
+    const fileType = this.determineFileType(contentType);
+
+    // Create file record
+    const fileEntity = this.fileRepository.create({
+      uploader: user,
+      room,
+      folder,
+      originalName,
+      fileName: fileKey,
+      filePath: fileUrl,
+      mimeType: contentType,
+      type: fileType,
+      size,
+    });
+
+    const savedFile = await this.fileRepository.save(fileEntity);
+    return this.formatFileResponse(savedFile, true);
   }
 
   async findAll(

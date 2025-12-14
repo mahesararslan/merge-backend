@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FileService } from './file.service';
 import { FileController } from './file.controller';
+import { S3Service } from './s3.service';
 import { File } from '../entities/file.entity';
 import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
@@ -20,7 +21,7 @@ import { RoomMember } from '../entities/room-member.entity';
     ]),
   ],
   controllers: [FileController],
-  providers: [FileService],
-  exports: [FileService],
+  providers: [FileService, S3Service],
+  exports: [FileService, S3Service],
 })
 export class FileModule {}

@@ -23,6 +23,8 @@ import { FileService } from './file.service';
 import { UploadFileDto } from './dto/upload-file.dto';
 import { QueryFileDto } from './dto/query-file.dto';
 import { UpdateFileDto } from './dto/update-file.dto';
+import { GeneratePresignedUrlDto } from './dto/generate-presigned-url.dto';
+import { ConfirmUploadDto } from './dto/confirm-upload.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 import { RoomRoleGuard } from 'src/room/guards/room-role.guard';
 import { RoomMemberRole } from 'src/entities/room-member.entity';
@@ -104,5 +106,97 @@ export class FileController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
     return this.fileService.deleteFile(id, req.user.id);
+  }
+
+  // ============= PRESIGNED URL ROUTES (NEW - FASTER!) =============
+
+  /**
+   * Generate presigned URL for direct S3 upload (Personal Files)
+   * POST /files/presigned-url
+   */
+  @Post('presigned-url')
+  @HttpCode(HttpStatus.OK)
+  async generatePresignedUrl(
+    @Body() dto: GeneratePresignedUrlDto,
+    @Req() req,
+  ) {
+    return this.fileService.generatePresignedUrl(
+      dto.originalName,
+      dto.contentType,
+      dto.size,
+      undefined, // no roomId for personal files
+      dto.folderId,
+      req.user.id,
+    );
+  }
+
+  /**
+   * Generate presigned URL for room file upload (Moderator+)
+   * POST /files/presigned-url/room/:roomId
+   */
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MODERATOR)
+  @Post('presigned-url/room/:roomId')
+  @HttpCode(HttpStatus.OK)
+  async generateRoomPresignedUrl(
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Body() dto: GeneratePresignedUrlDto,
+    @Req() req,
+  ) {
+    return this.fileService.generatePresignedUrl(
+      dto.originalName,
+      dto.contentType,
+      dto.size,
+      roomId,
+      dto.folderId,
+      req.user.id,
+    );
+  }
+
+  /**
+   * Confirm upload and save file metadata (Personal Files)
+   * POST /files/confirm-upload
+   */
+  @Post('confirm-upload')
+  @HttpCode(HttpStatus.CREATED)
+  async confirmUpload(
+    @Body() dto: ConfirmUploadDto,
+    @Req() req,
+  ) {
+    return this.fileService.saveFileMetadata(
+      dto.fileKey,
+      dto.fileUrl,
+      dto.originalName,
+      dto.contentType,
+      dto.size,
+      req.user.id,
+      undefined, // no roomId for personal files
+      dto.folderId,
+    );
+  }
+
+  /**
+   * Confirm room file upload and save metadata (Moderator+)
+   * POST /files/confirm-upload/room/:roomId
+   */
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MODERATOR)
+  @Post('confirm-upload/room/:roomId')
+  @HttpCode(HttpStatus.CREATED)
+  async confirmRoomUpload(
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Body() dto: ConfirmUploadDto,
+    @Req() req,
+  ) {
+    return this.fileService.saveFileMetadata(
+      dto.fileKey,
+      dto.fileUrl,
+      dto.originalName,
+      dto.contentType,
+      dto.size,
+      req.user.id,
+      roomId,
+      dto.folderId,
+    );
   }
 }

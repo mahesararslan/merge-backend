@@ -53,10 +53,10 @@ export class File {
   uploader: User;
 
   @ManyToOne(() => Room, { nullable: true })
-  room: Room;
+  room: Room | null;
 
   @ManyToOne(() => Folder, folder => folder.files, { nullable: true })
-  folder: Folder;
+  folder: Folder | null;
 
   @CreateDateColumn()
   createdAt: Date;

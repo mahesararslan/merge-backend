@@ -37,11 +37,11 @@ export class Folder {
   owner: User;
 
   @ManyToOne(() => Room, { nullable: true })
-  room: Room;
+  room: Room | null;
 
   // Self-referencing for nested folders
   @ManyToOne(() => Folder, folder => folder.subfolders, { nullable: true })
-  parentFolder: Folder;
+  parentFolder: Folder | null;
 
   @OneToMany(() => Folder, folder => folder.parentFolder)
   subfolders: Folder[];

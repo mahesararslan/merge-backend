@@ -66,89 +66,59 @@ export class RoomController {
   }
 
   // Get specific room by ID
-  @Get(':id')
+  @Get(':roomId')
   // @UseInterceptors(CacheInterceptor)
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.roomService.findOne(id);
+  findOne(@Param('roomId', ParseUUIDPipe) roomId: string) {
+    return this.roomService.findOne(roomId);
   }
 
   // Update room settings
-  @Patch(':id')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  @Patch(':roomId')
   update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('roomId', ParseUUIDPipe) roomId: string,
     @Body() updateRoomDto: UpdateRoomDto,
     @Req() req,
   ) {
-    return this.roomService.update(id, updateRoomDto, req.user.id);
+    return this.roomService.update(roomId, updateRoomDto, req.user.id);
   }
 
   // Delete room
-  @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
-    return this.roomService.delete(id, req.user.id);
+  @UseGuards(RoomRoleGuard) 
+  @RoomRoles(RoomMemberRole.ADMIN)
+  @Delete(':roomId')
+  remove(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
+    return this.roomService.delete(roomId, req.user.id);
   }
 
   // Leave room
-  @Delete(':id/leave')
-  leaveRoom(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
-    return this.roomService.leaveRoom(id, req.user.id);
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  @Delete(':roomId/leave')
+  leaveRoom(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
+    return this.roomService.leaveRoom(roomId, req.user.id);
   }
 
   // Get room members
-  @Get(':id/members')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  @Get(':roomId/members')
   // @UseInterceptors(CacheInterceptor)
-  getRoomMembers(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
-    return this.roomService.getRoomMembers(id, req.user.id);
+  getRoomMembers(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
+    return this.roomService.getRoomMembers(roomId, req.user.id);
   }
 
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
-  @Get(':id/course-content')
+  @Get(':roomId/course-content')
   // @UseInterceptors(CacheInterceptor)
   getRoomContent(
-    @Param('id', ParseUUIDPipe) roomId: string,
+    @Param('roomId', ParseUUIDPipe) roomId: string,
     @Query() queryDto: QueryRoomContentDto,
     @Req() req,
   ) {
     return this.roomService.getRoomContent(roomId, queryDto, req.user.id);
   }
 
-  // Test endpoint 1 - Only moderators and admins can access
-  // @UseGuards(RoomRoleGuard) 
-  // @RoomRoles(RoomMemberRole.MODERATOR)
-  // @Get(':id/test-moderator') 
-  // testModerator(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
-  //   return { 
-  //     message: 'Access granted - Moderator or Admin only',
-  //     roomId: id,
-  //     userId: req.user.id,
-  //     userRole: req.roomMember?.role || 'unknown',
-  //   };
-  // }
-
-  // // Test endpoint 2 - Only admins can access
-  // @UseGuards(RoomRoleGuard)
-  // @RoomRoles(RoomMemberRole.ADMIN)
-  // @Get(':id/test-admin')
-  // testAdmin(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
-  //   return {
-  //     message: 'Access granted - Admin only',
-  //     roomId: id,
-  //     userId: req.user.id,
-  //     userRole: 'admin',
-  //   };
-  // }
-
-  // // Test endpoint 3 - All members, moderators, and admins can access
-  // @UseGuards(RoomRoleGuard)
-  // @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
-  // @Get(':id/test-all-members')
-  // testAllMembers(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
-  //   return {
-  //     message: 'Access granted - All members, moderators, and admin',
-  //     roomId: id,
-  //     userId: req.user.id,
-  //     userRole: req.roomMember?.role || 'unknown',
-  //   };
-  // }
 }

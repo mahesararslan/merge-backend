@@ -1,4 +1,4 @@
-// @ts-nocheck
+
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
@@ -447,6 +447,7 @@ export class FolderService {
     if (folder.type === FolderType.NOTES) {
       return folder.owner.id === userId;
     } else {
+      if (!folder.room) return false;
       return this.canUserAccessRoom(userId, folder.room.id);
     }
   }
@@ -455,6 +456,7 @@ export class FolderService {
     if (folder.type === FolderType.NOTES) {
       return folder.owner.id === userId;
     } else {
+      if (!folder.room) return false;
       return this.canUserCreateFoldersInRoom(userId, folder.room.id);
     }
   }
@@ -463,6 +465,7 @@ export class FolderService {
     if (folder.type === FolderType.NOTES) {
       return folder.owner.id === userId;
     } else {
+      if (!folder.room) return false;
       return this.canUserCreateFoldersInRoom(userId, folder.room.id);
     }
   }
@@ -502,8 +505,8 @@ export class FolderService {
     return queryBuilder.getCount();
   }
 
-  private async generateBreadcrumb(folderId: string): Promise<any[]> {
-    const breadcrumb = [];
+  private async generateBreadcrumb(folderId: string): Promise<Array<{ id: string; name: string; type: FolderType }>> {
+    const breadcrumb: Array<{ id: string; name: string; type: FolderType }> = [];
     let currentFolder = await this.folderRepository.findOne({
       where: { id: folderId },
       relations: ['parentFolder'],
@@ -537,7 +540,7 @@ export class FolderService {
 
     if (!descendant) return false;
 
-    let current = descendant.parentFolder;
+    let current: Folder | null = descendant.parentFolder;
     while (current) {
       if (current.id === ancestorId) {
         return true;
@@ -639,7 +642,7 @@ export class FolderService {
 
     if (includeRelations) {
       response.owner = this.formatUserInfo(folder.owner);
-      response.room = this.formatRoomInfo(folder.room);
+      response.room = folder.room ? this.formatRoomInfo(folder.room) : null;
       
       if (folder.parentFolder) {
         response.parentFolder = {

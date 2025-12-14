@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
   Injectable,
   NotFoundException,
@@ -18,6 +17,8 @@ import { QueryUserRoomsDto, RoomFilter } from './dto/query-user-rooms.dto';
 import { Folder, FolderType } from '../entities/folder.entity';
 import { File } from '../entities/file.entity';
 import { QueryRoomContentDto } from './dto/query-room-content.dto';
+import { QueryAllRoomsDto } from './dto/query-all-rooms.dto';
+import { QueryUserFeedDto } from './dto/query-user-feed.dto';
 
 @Injectable()
 export class RoomService {
@@ -45,7 +46,7 @@ export class RoomService {
     return result;
   }
 
-  async create(createRoomDto: CreateRoomDto, adminId: string): Promise<Room> {
+  async create(createRoomDto: CreateRoomDto, adminId: string): Promise<any> {
     const admin = await this.userRepository.findOne({ where: { id: adminId } });
     if (!admin) {
       throw new NotFoundException('Admin user not found');
@@ -100,7 +101,7 @@ export class RoomService {
   }
 
   async findAll(queryDto: QueryAllRoomsDto) {
-    const { page, limit, search } = queryDto;
+    const { page = 1, limit = 10, search } = queryDto;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.roomRepository
@@ -141,7 +142,7 @@ export class RoomService {
     });
   }
 
-  async findOne(id: string): Promise<Room> {
+  async findOne(id: string): Promise<any> {
     const room = await this.roomRepository.findOne({
       where: { id },
       relations: ['admin', 'tags'],
@@ -160,7 +161,7 @@ export class RoomService {
     userId: string,
     queryDto: QueryUserFeedDto,
   ) {
-    const { page, limit, includeJoined } = queryDto;
+    const { page = 1, limit = 10, includeJoined } = queryDto;
     const skip = (page - 1) * limit;
 
     // Get user with their interests/tags
@@ -281,7 +282,7 @@ export class RoomService {
     id: string,
     updateRoomDto: UpdateRoomDto,
     userId: string,
-  ): Promise<Room> {
+  ): Promise<any> {
     const room = await this.findOne(id);
 
     // Check if user is the admin of the room
@@ -429,7 +430,7 @@ export class RoomService {
     await this.roomMemberRepository.remove(roomMember);
   }
 
-  async getRoomMembers(roomId: string, userId: string): Promise<RoomMember[]> {
+  async getRoomMembers(roomId: string, userId: string): Promise<any[]> {
     const room = await this.findOne(roomId);
 
     // Check if user has access to view members (admin or member)
@@ -467,7 +468,7 @@ export class RoomService {
     memberId: string,
     newRole: string,
     adminId: string,
-  ): Promise<RoomMember> {
+  ): Promise<any> {
     const room = await this.findOne(roomId);
 
     // Only room admin can update member roles
@@ -508,8 +509,8 @@ export class RoomService {
     ]);
 
     const totalCount = createdCount + joinedCount;
-    let rooms = [];
-    let total = 0;
+    let rooms: any[] = [];
+    let total: number = 0;
 
     switch (filter) {
       case RoomFilter.CREATED:
@@ -555,8 +556,8 @@ export class RoomService {
     return {
       rooms,
       total,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
+      totalPages: Math.ceil(total / (limit || 10)),
+      currentPage: page || 1,
       filter,
       counts: {
         created: createdCount,
@@ -863,8 +864,8 @@ export class RoomService {
     // Determine if we're looking at root or specific folder
     const isRoot = !folderId || folderId === 'root' || folderId === 'null';
     
-    let currentFolder = null;
-    let breadcrumb = [];
+    let currentFolder: Folder | null = null;
+    let breadcrumb: any[] = [];
 
     // If not root, get current folder info and breadcrumb
     if (!isRoot) {
@@ -877,7 +878,7 @@ export class RoomService {
         throw new NotFoundException('Folder not found');
       }
 
-      if (currentFolder.room.id !== roomId || currentFolder.type !== FolderType.ROOM) {
+      if (!currentFolder.room || currentFolder.room.id !== roomId || currentFolder.type !== FolderType.ROOM) {
         throw new ForbiddenException('Folder does not belong to this room');
       }
 
@@ -928,12 +929,12 @@ export class RoomService {
     ]);
 
     const totalCombined = totalFolders + totalFiles;
-    const totalPages = Math.ceil(totalCombined / limit);
-    const skip = (page - 1) * limit;
+    const totalPages = Math.ceil(totalCombined / (limit || 10));
+    const skip = ((page || 1) - 1) * (limit || 10);
 
     // For combined sorting, we need to handle folders and files together
-    let folders = [];
-    let files = [];
+    let folders: any[] = [];
+    let files: any[] = [];
 
     if (sortBy === 'name' || sortBy === 'createdAt' || sortBy === 'updatedAt') {
       // Get all folders and files, then sort them together
@@ -972,7 +973,7 @@ export class RoomService {
       });
 
       // Apply pagination to combined results
-      const paginatedCombined = combined.slice(skip, skip + limit);
+      const paginatedCombined = combined.slice(skip, skip + (limit || 10));
 
       // Separate back to folders and files
       folders = paginatedCombined.filter(item => item.itemType === 'folder');
@@ -987,20 +988,20 @@ export class RoomService {
         folders = await folderQueryBuilder
           .orderBy('folder.name', sortOrder)
           .skip(skip)
-          .take(Math.min(totalFolders - skip, limit))
+          .take(Math.min(totalFolders - skip, limit || 10))
           .getMany();
 
-        if (folders.length < limit) {
+        if (folders.length < (limit || 10)) {
           files = await fileQueryBuilder
             .orderBy('file.originalName', sortOrder)
-            .take(limit - folders.length)
+            .take((limit || 10) - folders.length)
             .getMany();
         }
       } else {
         files = await fileQueryBuilder
           .orderBy('file.originalName', sortOrder)
           .skip(skip - totalFolders)
-          .take(limit)
+          .take(limit || 10)
           .getMany();
       }
     }
@@ -1058,9 +1059,9 @@ export class RoomService {
       },
       pagination: {
         totalPages,
-        currentPage: page,
-        sortBy,
-        sortOrder,
+        currentPage: page || 1,
+        sortBy: sortBy || 'createdAt',
+        sortOrder: sortOrder || 'DESC',
       },
       breadcrumb,
       currentFolder,
@@ -1074,7 +1075,7 @@ export class RoomService {
 
   // Helper method to generate folder breadcrumb
   private async generateFolderBreadcrumb(folderId: string): Promise<any[]> {
-    const breadcrumb = [];
+    const breadcrumb: any[] = [];
     let currentFolder = await this.folderRepository.findOne({
       where: { id: folderId },
       relations: ['parentFolder'],

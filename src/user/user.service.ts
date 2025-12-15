@@ -1,4 +1,4 @@
-// @ts-nocheck
+
 import {
   BadRequestException,
   ConflictException,
@@ -152,7 +152,7 @@ export class UserService {
     if (!user || !user.auth) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
-    user.auth.hashedRefreshToken = hashedRefreshToken;
+    user.auth.hashedRefreshToken = hashedRefreshToken as any;
     await this.userAuthRepository.save(user.auth);
   }
 
@@ -186,7 +186,7 @@ export class UserService {
     }
 
     user.auth.isVerified = true;
-    user.auth.verificationToken = null;
+    user.auth.verificationToken = null as any;
     await this.userAuthRepository.save(user.auth);
     return user;
   }
@@ -223,9 +223,9 @@ export class UserService {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     userAuth.user.password = hashedPassword;
-    userAuth.passwordResetToken = null;
-    userAuth.passwordResetExpires = null;
-    userAuth.hashedRefreshToken = null; // Invalidate all refresh tokens
+    userAuth.passwordResetToken = null as any;
+    userAuth.passwordResetExpires = null as any;
+    userAuth.hashedRefreshToken = null as any; // Invalidate all refresh tokens
 
     await this.userAuthRepository.save(userAuth);
     await this.userRepository.save(userAuth.user);
@@ -246,8 +246,8 @@ export class UserService {
 
     // Clear any existing OTP data when disabling 2FA
     if (!enable) {
-      user.auth.otpCode = null;
-      user.auth.otpExpires = null;
+      user.auth.otpCode = null as any;
+      user.auth.otpExpires = null as any;
     }
 
     await this.userAuthRepository.save(user.auth);
@@ -305,8 +305,8 @@ export class UserService {
       relations: ['auth'],
     });
     if (user && user.auth) {
-      user.auth.otpCode = null;
-      user.auth.otpExpires = null;
+      user.auth.otpCode = null as any;
+      user.auth.otpExpires = null as any;
       await this.userAuthRepository.save(user.auth);
     }
   }
@@ -354,7 +354,7 @@ export class UserService {
     return profile as any;
   }
 
-  async getUserTags(userId: string): Promise<Tag[]> {
+  async getUserTags(userId: string): Promise<any[]> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
       relations: ['tags'],

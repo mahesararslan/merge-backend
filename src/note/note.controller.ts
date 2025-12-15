@@ -26,7 +26,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 export class NoteController {
   constructor(private readonly noteService: NoteService) {}
 
-  @Post()
+  @Post('/create')
   @HttpCode(HttpStatus.CREATED)
   create(@Body() createNoteDto: CreateNoteDto, @Req() req) {
     return this.noteService.create(createNoteDto, req.user.id);

@@ -7,6 +7,7 @@ import { AssignmentAttempt } from '../entities/assignment-attempt.entity';
 import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
 import { RoomMember } from '../entities/room-member.entity';
+import { RoomRoleGuard } from '../room/guards/room-role.guard';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { RoomMember } from '../entities/room-member.entity';
     ]),
   ],
   controllers: [AssignmentController],
-  providers: [AssignmentService],
+  providers: [AssignmentService, RoomRoleGuard],
   exports: [AssignmentService],
 })
 export class AssignmentModule {}

@@ -1,4 +1,4 @@
-import { IsOptional, IsIn, IsUUID } from 'class-validator';
+import { IsOptional, IsIn, IsUUID, IsNotEmpty } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class QueryAssignmentDto {
@@ -22,7 +22,7 @@ export class QueryAssignmentDto {
   @IsOptional()
   search?: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @IsUUID('4')
-  roomId?: string;
+  roomId: string;
 }

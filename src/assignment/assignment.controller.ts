@@ -17,18 +17,25 @@ import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { ScoreAttemptDto } from './dto/score-attempt.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
+import { RoomRoleGuard } from '../room/guards/room-role.guard';
+import { RoomRoles } from '../room/decorators/room-roles.decorator';
+import { RoomMemberRole } from '../entities/room-member.entity';
 
 @Controller('assignments')
 @UseGuards(JwtAuthGuard)
 export class AssignmentController {
   constructor(private readonly assignmentService: AssignmentService) {}
 
-  @Post()
+  @Post('/create')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
   create(@Body() createAssignmentDto: CreateAssignmentDto, @Request() req) {
     return this.assignmentService.create(createAssignmentDto, req.user.id);
   }
 
   @Get()
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   findAll(@Query() queryDto: QueryAssignmentDto, @Request() req) {
     return this.assignmentService.findAll(queryDto, req.user.id);
   }
@@ -53,6 +60,8 @@ export class AssignmentController {
   }
 
   @Post('attempts')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   submitAttempt(@Body() submitAttemptDto: SubmitAttemptDto, @Request() req) {
     return this.assignmentService.submitAttempt(submitAttemptDto, req.user.id);
   }

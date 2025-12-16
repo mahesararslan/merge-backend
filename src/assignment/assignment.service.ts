@@ -29,16 +29,10 @@ export class AssignmentService {
   async create(createAssignmentDto: CreateAssignmentDto, userId: string) {
     const room = await this.roomRepository.findOne({
       where: { id: createAssignmentDto.roomId },
-      relations: ['admin'],
     });
 
     if (!room) {
       throw new NotFoundException('Room not found');
-    }
-
-    // Only room admin can create assignments
-    if (room.admin.id !== userId) {
-      throw new ForbiddenException('Only room admin can create assignments');
     }
 
     const user = await this.userRepository.findOne({
@@ -69,16 +63,8 @@ export class AssignmentService {
       .leftJoinAndSelect('assignment.author', 'author')
       .leftJoinAndSelect('room.admin', 'admin');
 
-    // Filter by room if provided
-    if (roomId) {
-      queryBuilder.andWhere('assignment.room.id = :roomId', { roomId });
-
-      // Check if user has access to this room
-      const hasAccess = await this.checkRoomAccess(userId, roomId);
-      if (!hasAccess) {
-        throw new ForbiddenException('You do not have access to this room');
-      }
-    }
+    // Filter by room
+    queryBuilder.andWhere('assignment.room.id = :roomId', { roomId });
 
     // Search filter
     if (search) {
@@ -173,12 +159,6 @@ export class AssignmentService {
 
     if (!assignment) {
       throw new NotFoundException('Assignment not found');
-    }
-
-    // Check if user is a member
-    const hasAccess = await this.checkRoomAccess(userId, assignment.room.id);
-    if (!hasAccess) {
-      throw new ForbiddenException('You do not have access to this assignment');
     }
 
     // Check if submission is allowed

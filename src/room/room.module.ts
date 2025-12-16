@@ -1,5 +1,5 @@
 // src/room/room.module.ts
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RoomService } from './room.service';
 import { RoomController } from './room.controller';
@@ -10,6 +10,9 @@ import { RoomMember } from 'src/entities/room-member.entity';
 import { File } from '../entities/file.entity';
 import { Folder } from 'src/entities/folder.entity';
 import { RoomRoleGuard } from './guards/room-role.guard';
+import { FolderModule } from '../folder/folder.module';
+import { FileModule } from '../file/file.module';
+import { Note } from '../entities/note.entity';
 
 @Module({
   imports: [
@@ -18,9 +21,12 @@ import { RoomRoleGuard } from './guards/room-role.guard';
       User, 
       RoomMember, 
       Folder,     
-      File, 
+      File,
+      Note,
     ]),
     TagModule,
+    forwardRef(() => FolderModule),
+    forwardRef(() => FileModule),
   ],
   controllers: [RoomController],
   providers: [RoomService, RoomRoleGuard],

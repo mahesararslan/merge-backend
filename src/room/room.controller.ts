@@ -12,6 +12,8 @@ import {
   UseInterceptors,
   ParseIntPipe,
   UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { RoomService } from './room.service';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -23,6 +25,7 @@ import { QueryUserRoomsDto } from './dto/query-user-rooms.dto';
 import { QueryAllRoomsDto } from './dto/query-all-rooms.dto';
 import { QueryUserFeedDto } from './dto/query-user-feed.dto';
 import { QueryRoomContentDto } from './dto/query-room-content.dto';
+import { BulkDeleteContentDto } from './dto/bulk-delete-content.dto';
 import { RoomRoleGuard } from './guards/room-role.guard';
 import { RoomRoles } from './decorators/room-roles.decorator';
 import { RoomMemberRole } from 'src/entities/room-member.entity';
@@ -119,6 +122,18 @@ export class RoomController {
     @Req() req,
   ) {
     return this.roomService.getRoomContent(roomId, queryDto, req.user.id);
+  }
+
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MODERATOR)
+  @Delete(':roomId/course-content/bulk')
+  @HttpCode(HttpStatus.OK)
+  bulkDeleteCourseContent(
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Body() bulkDeleteDto: BulkDeleteContentDto,
+    @Req() req,
+  ) {
+    return this.roomService.bulkDeleteCourseContent(roomId, bulkDeleteDto, req.user.id);
   }
 
 }

@@ -3,6 +3,8 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
@@ -19,6 +21,9 @@ import { File } from '../entities/file.entity';
 import { QueryRoomContentDto } from './dto/query-room-content.dto';
 import { QueryAllRoomsDto } from './dto/query-all-rooms.dto';
 import { QueryUserFeedDto } from './dto/query-user-feed.dto';
+import { FolderService } from '../folder/folder.service';
+import { FileService } from '../file/file.service';
+import { BulkDeleteContentDto } from './dto/bulk-delete-content.dto';
 
 @Injectable()
 export class RoomService {
@@ -34,6 +39,10 @@ export class RoomService {
     @InjectRepository(File)
     private fileRepository: Repository<File>,
     private tagService: TagService,
+    @Inject(forwardRef(() => FolderService))
+    private folderService: FolderService,
+    @Inject(forwardRef(() => FileService))
+    private fileService: FileService,
   ) {}
 
   private generateRoomCode(): string {
@@ -1123,6 +1132,126 @@ export class RoomService {
       tags: room.tags?.map(tag => ({ id: tag.id, name: tag.name })) || [],
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
+    };
+  }
+
+  async bulkDeleteCourseContent(
+    roomId: string,
+    bulkDeleteDto: BulkDeleteContentDto,
+    userId: string,
+  ): Promise<{
+    success: boolean;
+    deletedFiles: number;
+    deletedFolders: number;
+    deletedSubfolders: number;
+    deletedNotes: number;
+    totalDeleted: number;
+    errors: Array<{ id: string; type: string; error: string }>;
+  }> {
+    // Verify room exists and user has permission (admin or moderator)
+    const room = await this.roomRepository.findOne({
+      where: { id: roomId },
+      relations: ['admin'],
+    });
+
+    if (!room) {
+      throw new NotFoundException('Room not found');
+    }
+
+    // Check if user is admin or moderator
+    const isAdmin = room.admin.id === userId;
+    const member = await this.roomMemberRepository.findOne({
+      where: {
+        room: { id: roomId },
+        user: { id: userId },
+      },
+    });
+
+    const isModerator = member?.role === 'moderator';
+
+    if (!isAdmin && !isModerator) {
+      throw new ForbiddenException('Only room admin or moderators can delete course content');
+    }
+
+    const errors: Array<{ id: string; type: string; error: string }> = [];
+    let deletedFilesCount = 0;
+    let deletedFoldersCount = 0;
+    let deletedSubfoldersCount = 0;
+    let deletedNotesCount = 0;
+
+    // Delete individual files
+    for (const fileId of bulkDeleteDto.fileIds || []) {
+      try {
+        // Verify file belongs to this room
+        const file = await this.fileRepository.findOne({
+          where: { id: fileId },
+          relations: ['room'],
+        });
+
+        if (!file) {
+          errors.push({ id: fileId, type: 'file', error: 'File not found' });
+          continue;
+        }
+
+        if (file.room?.id !== roomId) {
+          errors.push({ id: fileId, type: 'file', error: 'File does not belong to this room' });
+          continue;
+        }
+
+        await this.fileService.deleteFile(fileId, userId);
+        deletedFilesCount++;
+      } catch (error) {
+        errors.push({ 
+          id: fileId, 
+          type: 'file', 
+          error: error.message || 'Failed to delete file' 
+        });
+      }
+    }
+
+    // Delete folders (this will recursively delete subfolders, files, and notes within)
+    for (const folderId of bulkDeleteDto.folderIds || []) {
+      try {
+        // Verify folder belongs to this room
+        const folder = await this.folderRepository.findOne({
+          where: { id: folderId },
+          relations: ['room'],
+        });
+
+        if (!folder) {
+          errors.push({ id: folderId, type: 'folder', error: 'Folder not found' });
+          continue;
+        }
+
+        if (folder.room?.id !== roomId) {
+          errors.push({ id: folderId, type: 'folder', error: 'Folder does not belong to this room' });
+          continue;
+        }
+
+        const deleteResult = await this.folderService.remove(folderId, userId);
+        deletedFoldersCount++;
+        deletedSubfoldersCount += deleteResult.deletedItemsCount.subfolders;
+        deletedNotesCount += deleteResult.deletedItemsCount.notes;
+        deletedFilesCount += deleteResult.deletedItemsCount.files;
+      } catch (error) {
+        errors.push({ 
+          id: folderId, 
+          type: 'folder', 
+          error: error.message || 'Failed to delete folder' 
+        });
+      }
+    }
+
+    const totalDeleted = deletedFilesCount + deletedFoldersCount + deletedSubfoldersCount + deletedNotesCount;
+
+    return {
+      success: errors.length === 0,
+      deletedFiles: deletedFilesCount,
+      deletedFolders: deletedFoldersCount,
+      deletedSubfolders: deletedSubfoldersCount,
+      deletedNotes: deletedNotesCount,
+      totalDeleted,
+      errors,
     };
   }
 }

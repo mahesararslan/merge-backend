@@ -20,8 +20,8 @@ import { CreateNotesFolderDto } from './dto/create-notes-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
 import { QueryFolderDto } from './dto/query-folder.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
-import { RoomRoleGuard } from 'src/room/guards/room-role.guard';
-import { RoomRoles } from 'src/room/decorators/room-roles.decorator';
+import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
+import { RoomRoles } from 'src/auth/decorators/room-roles.decorator';
 import { RoomMemberRole } from 'src/entities/room-member.entity';
 
 

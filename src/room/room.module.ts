@@ -9,7 +9,7 @@ import { TagModule } from '../tag/tag.module';
 import { RoomMember } from 'src/entities/room-member.entity';
 import { File } from '../entities/file.entity';
 import { Folder } from 'src/entities/folder.entity';
-import { RoomRoleGuard } from './guards/room-role.guard';
+import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 import { FolderModule } from '../folder/folder.module';
 import { FileModule } from '../file/file.module';
 import { Note } from '../entities/note.entity';

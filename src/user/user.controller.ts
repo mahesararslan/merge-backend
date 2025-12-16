@@ -16,7 +16,6 @@ import { UserService } from './user.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { UserRole } from 'src/entities/user.entity';
-import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { CacheInterceptor } from '@nestjs/cache-manager';
 import { Public } from 'src/auth/decorators/public.decorator';

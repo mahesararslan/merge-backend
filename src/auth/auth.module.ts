@@ -11,7 +11,6 @@ import { ConfigModule } from '@nestjs/config';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './guards/jwt-auth/jwt-auth.guard';
-import { RolesGuard } from './guards/roles/roles.guard';
 import googleOauthConfig from './config/google-oauth.config';
 import { GoogleStrategy } from './strategies/google.strategy';
 import refreshJwtConfig from './config/refresh-jwt.config';
@@ -46,9 +45,11 @@ import { UserAuth } from 'src/entities/user-auth.entity';
     {
     provide: APP_GUARD, // apply JWT auth guard on all routes
     useClass: JwtAuthGuard
-  },{
-    provide: APP_GUARD,
-    useClass: RolesGuard // Role Guard must be applied after JwtAuthGuard
-  }],
+  },
+  // {
+  //   provide: APP_GUARD,
+  //   useClass: RolesGuard // Role Guard must be applied after JwtAuthGuard
+  // }
+],
 })
 export class AuthModule {}

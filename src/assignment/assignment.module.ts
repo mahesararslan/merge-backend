@@ -7,7 +7,8 @@ import { AssignmentAttempt } from '../entities/assignment-attempt.entity';
 import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
 import { RoomMember } from '../entities/room-member.entity';
-import { RoomRoleGuard } from '../room/guards/room-role.guard';
+import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
+
 
 @Module({
   imports: [

@@ -25,9 +25,10 @@ import { UpdateFileDto } from './dto/update-file.dto';
 import { GeneratePresignedUrlDto } from './dto/generate-presigned-url.dto';
 import { ConfirmUploadDto } from './dto/confirm-upload.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
-import { RoomRoleGuard } from 'src/room/guards/room-role.guard';
+
 import { RoomMemberRole } from 'src/entities/room-member.entity';
-import { RoomRoles } from 'src/room/decorators/room-roles.decorator';
+import { RoomRoles } from 'src/auth/decorators/room-roles.decorator';
+import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 
 
 @Controller('files')

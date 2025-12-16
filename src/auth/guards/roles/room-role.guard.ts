@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RoomMember, RoomMemberRole } from 'src/entities/room-member.entity';
 import { Room } from 'src/entities/room.entity';
-import { ROOM_ROLES_KEY } from '../decorators/room-roles.decorator';
+import { ROOM_ROLES_KEY } from '../../decorators/room-roles.decorator';
 
 /**
  * Guard to check if user has required role in a room

@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from 'src/auth/decorators/public.decorator';
@@ -18,5 +18,24 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     if (isPublic) return true;
     return super.canActivate(context);
+  }
+
+  handleRequest(err: any, user: any, info: any, context: ExecutionContext) {
+    // Handle token expiration
+    if (info?.name === 'TokenExpiredError') {
+      throw new UnauthorizedException('access token expired');
+    }
+    
+    // Handle other JWT errors
+    if (info?.name === 'JsonWebTokenError') {
+      throw new UnauthorizedException('invalid access token');
+    }
+
+    // Handle missing token or other errors
+    if (err || !user) {
+      throw err || new UnauthorizedException('Unauthorized');
+    }
+
+    return user;
   }
 }

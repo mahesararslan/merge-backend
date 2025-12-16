@@ -26,9 +26,10 @@ import { QueryAllRoomsDto } from './dto/query-all-rooms.dto';
 import { QueryUserFeedDto } from './dto/query-user-feed.dto';
 import { QueryRoomContentDto } from './dto/query-room-content.dto';
 import { BulkDeleteContentDto } from './dto/bulk-delete-content.dto';
-import { RoomRoleGuard } from './guards/room-role.guard';
-import { RoomRoles } from './decorators/room-roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
+import { RoomRoles } from '../auth/decorators/room-roles.decorator';
 import { RoomMemberRole } from 'src/entities/room-member.entity';
+import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 
 @Controller('room')
 export class RoomController {

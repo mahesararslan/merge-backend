@@ -17,9 +17,10 @@ import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { ScoreAttemptDto } from './dto/score-attempt.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
-import { RoomRoleGuard } from '../room/guards/room-role.guard';
-import { RoomRoles } from '../room/decorators/room-roles.decorator';
+
+import { RoomRoles } from '../auth/decorators/room-roles.decorator';
 import { RoomMemberRole } from '../entities/room-member.entity';
+import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 
 @Controller('assignments')
 @UseGuards(JwtAuthGuard)

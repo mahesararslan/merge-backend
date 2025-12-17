@@ -103,6 +103,15 @@ export class UserService {
     });
   }
 
+  async getUserwithAuth(userId: string) {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['auth'],
+    });
+    return user;
+  }
+
+
   async update(id: string, updateUserDto: UpdateUserDto) {
     const updateResult = await this.userRepository.update(id, updateUserDto);
     if (updateResult.affected === 0) {

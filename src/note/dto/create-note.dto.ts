@@ -13,6 +13,6 @@ export class CreateNoteDto {
   content: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'Folder ID must be a valid UUID' })
+  @IsUUID('4', { message: 'Folder ID must be a valid UUID' }) 
   folderId?: string;
 }

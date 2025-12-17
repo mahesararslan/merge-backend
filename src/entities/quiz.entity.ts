@@ -31,8 +31,8 @@ export class Quiz {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ nullable: true })
-  deadline: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  deadline: Date | null;
 
   @OneToMany(() => QuizQuestion, (question) => question.quiz, { cascade: true })
   questions: QuizQuestion[];

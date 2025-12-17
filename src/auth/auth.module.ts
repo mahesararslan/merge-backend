@@ -21,6 +21,7 @@ import { UserModule } from 'src/user/user.module';
 import { TagModule } from 'src/tag/tag.module';
 import { RoomModule } from 'src/room/room.module';
 import { UserAuth } from 'src/entities/user-auth.entity';
+import { RolesGuard } from './guards/roles/roles.guard';
 
 @Module({
   imports: [
@@ -45,11 +46,9 @@ import { UserAuth } from 'src/entities/user-auth.entity';
     {
     provide: APP_GUARD, // apply JWT auth guard on all routes
     useClass: JwtAuthGuard
-  },
-  // {
-  //   provide: APP_GUARD,
-  //   useClass: RolesGuard // Role Guard must be applied after JwtAuthGuard
-  // }
-],
+  },{
+    provide: APP_GUARD,
+    useClass: RolesGuard // Role Guard must be applied after JwtAuthGuard
+  }],
 })
 export class AuthModule {}

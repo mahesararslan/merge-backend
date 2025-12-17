@@ -52,7 +52,7 @@ export class RoomRoleGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
     const userId = request.user?.id;
-    const roomId = request.params?.roomId || request.params?.id || request.body?.roomId || request.query?.roomId;
+    const roomId = request.params?.roomId || request.body?.roomId || request.query?.roomId;
 
     if (!userId) {
       throw new ForbiddenException('User not authenticated');

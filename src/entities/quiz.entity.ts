@@ -31,6 +31,9 @@ export class Quiz {
   @CreateDateColumn()
   createdAt: Date;
 
+  @Column({ type: 'float', default: 0 })
+  totalScore: number;
+
   @Column({ type: 'timestamp', nullable: true })
   deadline: Date | null;
 

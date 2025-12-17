@@ -56,19 +56,25 @@ export class QuizService {
 
     const savedQuiz = await this.quizRepository.save(quiz);
 
-    // Create questions
-    const questions = createQuizDto.questions.map(q => {
+    // Create questions - set the quiz relation object
+    const questions: QuizQuestion[] = [];
+    for (const q of createQuizDto.questions) {
       const question = this.questionRepository.create({
         text: q.text,
         options: q.options,
         correctOption: q.correctOption,
         points: q.points,
       });
-      question.quiz = savedQuiz;
-      return question;
-    });
+      question.quiz = { id: savedQuiz.id } as Quiz;
+      questions.push(question);
+    }
 
     await this.questionRepository.save(questions);
+
+    // Calculate and update total score
+    const totalScore = questions.reduce((sum, q) => sum + q.points, 0);
+    savedQuiz.totalScore = totalScore;
+    await this.quizRepository.save(savedQuiz);
 
     return this.findOne(savedQuiz.id, userId);
   }
@@ -144,25 +150,39 @@ export class QuizService {
 
     // Update questions if provided
     if (updateQuizDto.questions) {
-      // Delete old questions
-      await this.questionRepository.delete({ quiz: { id } });
+      // Delete all existing questions by their IDs
+      const questionIds = quiz.questions.map(q => q.id);
+      if (questionIds.length > 0) {
+        await this.questionRepository.delete(questionIds);
+        // console.log("Deleted questions with IDs:", questionIds);
+      }
 
-      // Create new questions
-      const questions = updateQuizDto.questions.map(q => {
+      // Create new questions - set the quiz relation object, not just quizId
+      let totalScore = 0;
+      for (const q of updateQuizDto.questions) {
         const question = this.questionRepository.create({
           text: q.text,
           options: q.options,
           correctOption: q.correctOption,
           points: q.points,
         });
-        question.quiz = quiz;
-        return question;
-      });
+        question.quiz = { id: quiz.id } as Quiz;  // Set relation with ID reference
+        const savedQuestion = await this.questionRepository.save(question);
+        // console.log('Saved question:', savedQuestion.id, 'with quizId:', savedQuestion.quizId);
+        totalScore += q.points;
+      }
 
-      await this.questionRepository.save(questions);
+      // Update total score using query builder to avoid cascade issues
+      await this.quizRepository.update(id, { totalScore });
     }
 
-    return this.findOne(id, userId);
+    // Fetch fresh data from database
+    const updatedQuiz = await this.quizRepository.findOne({
+      where: { id },
+      relations: ['room', 'author', 'questions'],
+    });
+
+    return this.formatQuizResponse(updatedQuiz!, false);
   }
 
   async remove(id: string, userId: string) {
@@ -330,6 +350,7 @@ export class QuizService {
       quiz: attempt.quiz ? {
         id: attempt.quiz.id,
         title: attempt.quiz.title,
+        totalScore: attempt.quiz.totalScore,
       } : null,
     };
   }

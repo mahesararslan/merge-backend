@@ -20,12 +20,12 @@ import { RoomMemberRole } from '../entities/room-member.entity';
 import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 import { RoomRoles } from 'src/auth/decorators/room-roles.decorator';
 
-@Controller('quizzes')
+@Controller('quiz')
 @UseGuards(JwtAuthGuard)
 export class QuizController {
   constructor(private readonly quizService: QuizService) {}
 
-  @Post()
+  @Post('/create')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.ADMIN)
   create(@Body() createQuizDto: CreateQuizDto, @Request() req) {

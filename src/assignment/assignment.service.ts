@@ -187,7 +187,7 @@ export class AssignmentService {
     }
 
     const attempt = this.attemptRepository.create({
-      fileUrl: submitAttemptDto.fileUrl,
+      fileUrls: submitAttemptDto.fileUrls,
       submitAt: new Date(),
     });
     attempt.assignment = assignment;
@@ -300,6 +300,7 @@ export class AssignmentService {
       title: assignment.title,
       description: assignment.description,
       assignmentUrl: assignment.assignmentUrl,
+      totalScore: assignment.totalScore,
       startAt: assignment.startAt,
       endAt: assignment.endAt,
       isTurnInLateEnabled: assignment.isTurnInLateEnabled,
@@ -321,7 +322,7 @@ export class AssignmentService {
   private formatAttemptResponse(attempt: AssignmentAttempt) {
     return {
       id: attempt.id,
-      fileUrl: attempt.fileUrl,
+      fileUrls: attempt.fileUrls,
       submitAt: attempt.submitAt,
       score: attempt.score,
       user: attempt.user ? {

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID, IsBoolean, IsDateString, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsBoolean, IsDateString, MaxLength, IsNumber, Min } from 'class-validator';
 
 export class CreateAssignmentDto {
   @IsUUID('4')
@@ -15,6 +15,10 @@ export class CreateAssignmentDto {
 
   @IsString()
   assignmentUrl: string;
+
+  @IsNumber()
+  @Min(0)
+  totalScore: number;
 
   @IsOptional()
   @IsDateString()

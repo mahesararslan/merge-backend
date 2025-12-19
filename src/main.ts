@@ -3,9 +3,18 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { CacheInterceptor } from '@nestjs/cache-manager';
+import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Default body parser limit (1mb) for most routes
+  app.use(bodyParser.json({ limit: '1mb' }));
+  app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));
+
+  // Larger limit only for notes routes (rich text content)
+  app.use('/note', bodyParser.json({ limit: '10mb' }));
+  app.use('/note', bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
   app.useGlobalPipes(
     new ValidationPipe({

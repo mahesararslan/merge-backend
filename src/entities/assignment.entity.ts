@@ -28,6 +28,9 @@ export class Assignment {
   @Column()
   assignmentUrl: string;
 
+  @Column({ type: 'float' })
+  totalScore: number; 
+
   @Column({ type: 'timestamp', nullable: true })
   startAt: Date | null;
 

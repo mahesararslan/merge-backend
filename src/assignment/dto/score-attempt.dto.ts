@@ -1,8 +1,7 @@
-import { IsNumber, Min, Max } from 'class-validator';
+import { IsNumber, Min } from 'class-validator';
 
 export class ScoreAttemptDto {
   @IsNumber()
   @Min(0)
-  @Max(100)
   score: number;
 }

@@ -24,7 +24,7 @@ export class Note {
   title: string;
 
   @Column()
-  content: string; // markdown / rich text
+  content: string; // rich text in html
 
   @CreateDateColumn()
   createdAt: Date;

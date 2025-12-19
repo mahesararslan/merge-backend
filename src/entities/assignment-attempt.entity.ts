@@ -18,8 +18,8 @@ export class AssignmentAttempt {
   @ManyToOne(() => Assignment, { nullable: false })
   assignment: Assignment;
 
-  @Column()
-  fileUrl: string;
+  @Column('simple-array')
+  fileUrls: string[];
 
   @Column({ type: 'timestamp' })
   submitAt: Date;

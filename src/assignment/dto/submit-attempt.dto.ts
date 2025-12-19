@@ -1,4 +1,4 @@
-import { IsString, IsUUID } from 'class-validator';
+import { IsString, IsUUID, IsArray, ArrayMinSize, ArrayMaxSize } from 'class-validator';
 
 export class SubmitAttemptDto {
   @IsUUID('4')
@@ -7,9 +7,15 @@ export class SubmitAttemptDto {
   @IsUUID('4')
   roomId: string;
 
-  @IsString()
-  fileKey: string;
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(3)
+  fileKeys: string[];
 
-  @IsString()
-  fileUrl: string;
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(3)
+  fileUrls: string[];
 }

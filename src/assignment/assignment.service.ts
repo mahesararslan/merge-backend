@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not, IsNull } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { AssignmentAttempt } from '../entities/assignment-attempt.entity';
 import { Room } from '../entities/room.entity';
@@ -9,6 +9,8 @@ import { RoomMember } from '../entities/room-member.entity';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
+import { QueryInstructorAssignmentDto } from './dto/query-instructor-assignment.dto';
+import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 
 @Injectable()
@@ -82,6 +84,202 @@ export class AssignmentService {
 
     return {
       assignments: assignments.map(a => this.formatAssignmentResponse(a)),
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    };
+  }
+
+  async findAllForInstructor(queryDto: QueryInstructorAssignmentDto, userId: string) {
+    const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC', search, roomId, filter = 'all' } = queryDto;
+    const skip = (page - 1) * limit;
+
+    let queryBuilder = this.assignmentRepository
+      .createQueryBuilder('assignment')
+      .leftJoinAndSelect('assignment.room', 'room')
+      .leftJoinAndSelect('assignment.author', 'author')
+      .leftJoinAndSelect('room.admin', 'admin')
+      .where('assignment.room.id = :roomId', { roomId });
+
+    // Search filter
+    if (search) {
+      queryBuilder.andWhere(
+        '(assignment.title ILIKE :search OR assignment.description ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    // Apply instructor-specific filters
+    if (filter === 'needs_grading') {
+      // Assignments that have at least one attempt without a score
+      queryBuilder.andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('assignment_attempts', 'attempt')
+          .where('attempt.assignmentId = assignment.id')
+          .andWhere('attempt.score IS NULL')
+          .getQuery();
+        return `EXISTS ${subQuery}`;
+      });
+    } else if (filter === 'graded') {
+      // Assignments where all attempts have been scored (and has at least one attempt)
+      queryBuilder.andWhere(qb => {
+        const hasAttemptsSubQuery = qb
+          .subQuery()
+          .select('1')
+          .from('assignment_attempts', 'attempt')
+          .where('attempt.assignmentId = assignment.id')
+          .getQuery();
+        return `EXISTS ${hasAttemptsSubQuery}`;
+      });
+      queryBuilder.andWhere(qb => {
+        const ungradedSubQuery = qb
+          .subQuery()
+          .select('1')
+          .from('assignment_attempts', 'attempt')
+          .where('attempt.assignmentId = assignment.id')
+          .andWhere('attempt.score IS NULL')
+          .getQuery();
+        return `NOT EXISTS ${ungradedSubQuery}`;
+      });
+    }
+
+    const [assignments, total] = await queryBuilder
+      .orderBy(`assignment.${sortBy}`, sortOrder)
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    // Get attempt counts for each assignment
+    const assignmentsWithStats = await Promise.all(
+      assignments.map(async (assignment) => {
+        const totalAttempts = await this.attemptRepository.count({
+          where: { assignment: { id: assignment.id } },
+        });
+        const gradedAttempts = await this.attemptRepository.count({
+          where: { assignment: { id: assignment.id }, score: Not(IsNull()) },
+        });
+        return {
+          ...this.formatAssignmentResponse(assignment),
+          totalAttempts,
+          gradedAttempts,
+          ungradedAttempts: totalAttempts - gradedAttempts,
+        };
+      })
+    );
+
+    return {
+      assignments: assignmentsWithStats,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    };
+  }
+
+  async findAllForStudent(queryDto: QueryStudentAssignmentDto, userId: string) {
+    const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC', search, roomId, filter = 'all' } = queryDto;
+    const skip = (page - 1) * limit;
+    const now = new Date();
+
+    let queryBuilder = this.assignmentRepository
+      .createQueryBuilder('assignment')
+      .leftJoinAndSelect('assignment.room', 'room')
+      .leftJoinAndSelect('assignment.author', 'author')
+      .leftJoinAndSelect('room.admin', 'admin')
+      .where('assignment.room.id = :roomId', { roomId });
+
+    // Search filter
+    if (search) {
+      queryBuilder.andWhere(
+        '(assignment.title ILIKE :search OR assignment.description ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    // Apply student-specific filters
+    if (filter === 'completed') {
+      // Assignments the student has submitted
+      queryBuilder.andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('assignment_attempts', 'attempt')
+          .where('attempt.assignmentId = assignment.id')
+          .andWhere('attempt.userId = :userId', { userId })
+          .getQuery();
+        return `EXISTS ${subQuery}`;
+      });
+    } else if (filter === 'pending') {
+      // Assignments not submitted and (no deadline OR deadline not passed OR late submission allowed)
+      queryBuilder.andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('assignment_attempts', 'attempt')
+          .where('attempt.assignmentId = assignment.id')
+          .andWhere('attempt.userId = :userId', { userId })
+          .getQuery();
+        return `NOT EXISTS ${subQuery}`;
+      });
+      queryBuilder.andWhere(
+        '(assignment.endAt IS NULL OR assignment.endAt > :now OR assignment.isTurnInLateEnabled = true)',
+        { now }
+      );
+    } else if (filter === 'missed') {
+      // Assignments not submitted and deadline passed and late submission not allowed
+      queryBuilder.andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('assignment_attempts', 'attempt')
+          .where('attempt.assignmentId = assignment.id')
+          .andWhere('attempt.userId = :userId', { userId })
+          .getQuery();
+        return `NOT EXISTS ${subQuery}`;
+      });
+      queryBuilder.andWhere('assignment.endAt IS NOT NULL');
+      queryBuilder.andWhere('assignment.endAt <= :now', { now });
+      queryBuilder.andWhere('assignment.isTurnInLateEnabled = false');
+    }
+
+    const [assignments, total] = await queryBuilder
+      .orderBy(`assignment.${sortBy}`, sortOrder)
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    // Get submission status for each assignment
+    const assignmentsWithStatus = await Promise.all(
+      assignments.map(async (assignment) => {
+        const attempt = await this.attemptRepository.findOne({
+          where: { assignment: { id: assignment.id }, user: { id: userId } },
+        });
+        
+        let status: 'pending' | 'completed' | 'missed';
+        if (attempt) {
+          status = 'completed';
+        } else if (assignment.endAt && new Date(assignment.endAt) < now && !assignment.isTurnInLateEnabled) {
+          status = 'missed';
+        } else {
+          status = 'pending';
+        }
+
+        return {
+          ...this.formatAssignmentResponse(assignment),
+          submissionStatus: status,
+          attempt: attempt ? {
+            id: attempt.id,
+            submitAt: attempt.submitAt,
+            score: attempt.score,
+            fileUrls: attempt.fileUrls,
+          } : null,
+        };
+      })
+    );
+
+    return {
+      assignments: assignmentsWithStatus,
       total,
       totalPages: Math.ceil(total / limit),
       currentPage: page,

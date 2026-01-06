@@ -19,6 +19,7 @@ import { RoomService } from './room.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
+import { ReviewJoinRequestDto } from './dto/review-join-request.dto';
 import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { Public } from '../auth/decorators/public.decorator';
 import { QueryUserRoomsDto } from './dto/query-user-rooms.dto';
@@ -63,10 +64,25 @@ export class RoomController {
     return this.roomService.getUserFeed(req.user.id, queryDto);
   }
 
-  // Join room by code
+  // Join room by code (public rooms: direct join, private rooms: creates join request)
   @Post('join')
   joinRoom(@Body() joinRoomDto: JoinRoomDto, @Req() req) {
     return this.roomService.joinRoom(joinRoomDto.roomCode, req.user.id);
+  }
+
+  // Get my pending join requests
+  @Get('join-requests/my')
+  getMyJoinRequests(@Req() req) {
+    return this.roomService.getMyJoinRequests(req.user.id);
+  }
+
+  // Cancel my join request
+  @Delete('join-requests/:requestId')
+  cancelJoinRequest(
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @Req() req,
+  ) {
+    return this.roomService.cancelJoinRequest(requestId, req.user.id);
   }
 
   // Get specific room by ID
@@ -111,6 +127,31 @@ export class RoomController {
   // @UseInterceptors(CacheInterceptor)
   getRoomMembers(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
     return this.roomService.getRoomMembers(roomId, req.user.id);
+  }
+
+  // Get pending join requests for a room (admin/moderator only)
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN, RoomMemberRole.MODERATOR)
+  @Get(':roomId/join-requests')
+  getJoinRequests(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
+    return this.roomService.getJoinRequests(roomId, req.user.id);
+  }
+
+  // Accept or reject a join request (admin/moderator only)
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN, RoomMemberRole.MODERATOR)
+  @Post(':roomId/join-requests/review')
+  reviewJoinRequest(
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Body() reviewDto: ReviewJoinRequestDto,
+    @Req() req,
+  ) {
+    return this.roomService.reviewJoinRequest(
+      roomId,
+      reviewDto.requestId,
+      reviewDto.action,
+      req.user.id,
+    );
   }
 
   @UseGuards(RoomRoleGuard)

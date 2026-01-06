@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -14,7 +15,8 @@ import { TagService } from '../tag/tag.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { Tag } from 'src/entities/tag.entity';
-import { RoomMember } from '../entities/room-member.entity'; // Add this import
+import { RoomMember } from '../entities/room-member.entity';
+import { RoomJoinRequest, JoinRequestStatus } from '../entities/room-join-request.entity';
 import { QueryUserRoomsDto, RoomFilter } from './dto/query-user-rooms.dto';
 import { Folder, FolderType } from '../entities/folder.entity';
 import { File } from '../entities/file.entity';
@@ -32,8 +34,10 @@ export class RoomService {
     private roomRepository: Repository<Room>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
-    @InjectRepository(RoomMember) // Add this
+    @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
+    @InjectRepository(RoomJoinRequest)
+    private joinRequestRepository: Repository<RoomJoinRequest>,
     @InjectRepository(Folder)
     private folderRepository: Repository<Folder>,
     @InjectRepository(File)
@@ -161,7 +165,21 @@ export class RoomService {
       throw new NotFoundException(`Room with ID ${id} not found`);
     }
 
-    return this.formatRoomResponse(room);
+    // Get moderator IDs for this room
+    const moderators = await this.roomMemberRepository.find({
+      where: {
+        room: { id },
+        role: 'moderator' as any,
+      },
+      relations: ['user'],
+    });
+
+    const moderatorIds = moderators.map(m => m.user.id);
+
+    return {
+      ...this.formatRoomResponse(room),
+      moderators: moderatorIds,
+    };
   }
 
   // Add this method to src/room/room.service.ts
@@ -348,6 +366,15 @@ export class RoomService {
       throw new NotFoundException('User not found');
     }
 
+    // Check if user is the admin (admin doesn't need to join as member)
+    if (room.admin.id === userId) {
+      return {
+        success: true,
+        message: `You are the admin of ${room.title}`,
+        room: this.formatRoomResponse(room),
+      };
+    }
+
     // Check if user is already a member
     const existingMember = await this.roomMemberRepository.findOne({
       where: {
@@ -364,27 +391,232 @@ export class RoomService {
       };
     }
 
-    // Check if user is the admin (admin doesn't need to join as member)
-    if (room.admin.id === userId) {
+    // For public rooms, join directly
+    if (room.isPublic) {
+      const roomMember = this.roomMemberRepository.create({
+        room,
+        user,
+      });
+      await this.roomMemberRepository.save(roomMember);
+
       return {
         success: true,
-        message: `You are the admin of ${room.title}`,
+        message: `Successfully joined ${room.title}`,
         room: this.formatRoomResponse(room),
       };
     }
 
-    // Create membership
-    const roomMember = this.roomMemberRepository.create({
-      room,
-      user,
+    // For private rooms, check if there's already a pending request
+    const existingRequest = await this.joinRequestRepository.findOne({
+      where: {
+        room: { id: room.id },
+        user: { id: userId },
+        status: JoinRequestStatus.PENDING,
+      },
     });
 
-    await this.roomMemberRepository.save(roomMember);
+    if (existingRequest) {
+      return {
+        success: true,
+        message: `You have already requested to join ${room.title}. Please wait for approval.`,
+        requestId: existingRequest.id,
+        status: 'pending',
+      };
+    }
+
+    // Check if there's a rejected request (allow re-requesting)
+    const rejectedRequest = await this.joinRequestRepository.findOne({
+      where: {
+        room: { id: room.id },
+        user: { id: userId },
+        status: JoinRequestStatus.REJECTED,
+      },
+    });
+
+    if (rejectedRequest) {
+      // Update the rejected request to pending
+      rejectedRequest.status = JoinRequestStatus.PENDING;
+      rejectedRequest.reviewedBy = null;
+      rejectedRequest.reviewedAt = null;
+      await this.joinRequestRepository.save(rejectedRequest);
+
+      return {
+        success: true,
+        message: `Join request submitted for ${room.title}. Please wait for approval.`,
+        requestId: rejectedRequest.id,
+        status: 'pending',
+      };
+    }
+
+    // Create new join request for private room
+    const joinRequest = this.joinRequestRepository.create({
+      room,
+      user,
+      status: JoinRequestStatus.PENDING,
+    });
+    await this.joinRequestRepository.save(joinRequest);
 
     return {
       success: true,
-      message: `Successfully joined ${room.title}`,
-      room: this.formatRoomResponse(room),
+      message: `Join request submitted for ${room.title}. Please wait for approval.`,
+      requestId: joinRequest.id,
+      status: 'pending',
+    };
+  }
+
+  async getJoinRequests(roomId: string, userId: string) {
+    const room = await this.findOne(roomId);
+
+    // Check if user is admin or moderator
+    const isAdmin = room.admin.id === userId;
+    const isModerator = await this.roomMemberRepository.findOne({
+      where: {
+        room: { id: roomId },
+        user: { id: userId },
+        role: 'moderator' as any,
+      },
+    });
+
+    if (!isAdmin && !isModerator) {
+      throw new ForbiddenException('Only admin or moderator can view join requests');
+    }
+
+    const requests = await this.joinRequestRepository.find({
+      where: {
+        room: { id: roomId },
+        status: JoinRequestStatus.PENDING,
+      },
+      relations: ['user', 'room'],
+      order: { createdAt: 'ASC' },
+    });
+
+    return requests.map(request => ({
+      id: request.id,
+      status: request.status,
+      createdAt: request.createdAt,
+      user: {
+        id: request.user.id,
+        firstName: request.user.firstName,
+        lastName: request.user.lastName,
+        email: request.user.email,
+        image: request.user.image,
+      },
+    }));
+  }
+
+  async reviewJoinRequest(
+    roomId: string,
+    requestId: string,
+    action: 'accepted' | 'rejected',
+    reviewerId: string,
+  ) {
+    const room = await this.findOne(roomId);
+
+    // Check if user is admin or moderator
+    const isAdmin = room.admin.id === reviewerId;
+    const isModerator = await this.roomMemberRepository.findOne({
+      where: {
+        room: { id: roomId },
+        user: { id: reviewerId },
+        role: 'moderator' as any,
+      },
+    });
+
+    if (!isAdmin && !isModerator) {
+      throw new ForbiddenException('Only admin or moderator can review join requests');
+    }
+
+    const request = await this.joinRequestRepository.findOne({
+      where: { id: requestId, room: { id: roomId } },
+      relations: ['user', 'room'],
+    });
+
+    if (!request) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    if (request.status !== JoinRequestStatus.PENDING) {
+      throw new BadRequestException('This request has already been reviewed');
+    }
+
+    const reviewer = await this.userRepository.findOne({ where: { id: reviewerId } });
+
+    if (action === 'accepted') {
+      // Create membership
+      const roomMember = this.roomMemberRepository.create({
+        room: request.room,
+        user: request.user,
+      });
+      await this.roomMemberRepository.save(roomMember);
+
+      // Update request status
+      request.status = JoinRequestStatus.ACCEPTED;
+      request.reviewedBy = reviewer;
+      request.reviewedAt = new Date();
+      await this.joinRequestRepository.save(request);
+
+      return {
+        success: true,
+        message: `${request.user.firstName} ${request.user.lastName} has been added to the room`,
+      };
+    } else {
+      // Reject request
+      request.status = JoinRequestStatus.REJECTED;
+      request.reviewedBy = reviewer;
+      request.reviewedAt = new Date();
+      await this.joinRequestRepository.save(request);
+
+      return {
+        success: true,
+        message: `Join request from ${request.user.firstName} ${request.user.lastName} has been rejected`,
+      };
+    }
+  }
+
+  async getMyJoinRequests(userId: string) {
+    const requests = await this.joinRequestRepository.find({
+      where: { user: { id: userId } },
+      relations: ['room', 'room.admin'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return requests.map(request => ({
+      id: request.id,
+      status: request.status,
+      createdAt: request.createdAt,
+      reviewedAt: request.reviewedAt,
+      room: {
+        id: request.room.id,
+        title: request.room.title,
+        description: request.room.description,
+        admin: {
+          id: request.room.admin.id,
+          firstName: request.room.admin.firstName,
+          lastName: request.room.admin.lastName,
+        },
+      },
+    }));
+  }
+
+  async cancelJoinRequest(requestId: string, userId: string) {
+    const request = await this.joinRequestRepository.findOne({
+      where: { id: requestId, user: { id: userId } },
+      relations: ['room'],
+    });
+
+    if (!request) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    if (request.status !== JoinRequestStatus.PENDING) {
+      throw new BadRequestException('Only pending requests can be cancelled');
+    }
+
+    await this.joinRequestRepository.remove(request);
+
+    return {
+      success: true,
+      message: `Join request for ${request.room.title} has been cancelled`,
     };
   }
 

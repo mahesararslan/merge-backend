@@ -20,6 +20,7 @@ import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
 import { ReviewJoinRequestDto } from './dto/review-join-request.dto';
+import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
 import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { Public } from '../auth/decorators/public.decorator';
 import { QueryUserRoomsDto } from './dto/query-user-rooms.dto';
@@ -127,6 +128,24 @@ export class RoomController {
   // @UseInterceptors(CacheInterceptor)
   getRoomMembers(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
     return this.roomService.getRoomMembers(roomId, req.user.id);
+  }
+
+  // Update member role (admin only)
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  @Patch(':roomId/members/:memberId/role')
+  updateMemberRole(
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @Body() updateMemberRoleDto: UpdateMemberRoleDto,
+    @Req() req,
+  ) {
+    return this.roomService.updateMemberRole(
+      roomId,
+      memberId,
+      updateMemberRoleDto.role,
+      req.user.id,
+    );
   }
 
   // Get pending join requests for a room (admin/moderator only)

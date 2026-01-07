@@ -21,6 +21,9 @@ export class AssignmentAttempt {
   @Column('simple-array')
   fileUrls: string[];
 
+  @Column({ type: 'text', nullable: true })
+  note: string | null;
+
   @Column({ type: 'timestamp' })
   submitAt: Date;
 

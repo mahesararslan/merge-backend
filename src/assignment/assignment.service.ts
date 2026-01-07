@@ -12,6 +12,7 @@ import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { QueryInstructorAssignmentDto } from './dto/query-instructor-assignment.dto';
 import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
+import { UpdateAttemptDto } from './dto/update-attempt.dto';
 
 @Injectable()
 export class AssignmentService {
@@ -386,6 +387,7 @@ export class AssignmentService {
 
     const attempt = this.attemptRepository.create({
       fileUrls: submitAttemptDto.fileUrls,
+      note: submitAttemptDto.note || null,
       submitAt: new Date(),
     });
     attempt.assignment = assignment;
@@ -417,6 +419,44 @@ export class AssignmentService {
     });
 
     return attempts.map(a => this.formatAttemptResponse(a));
+  }
+
+  async updateAttempt(attemptId: string, updateAttemptDto: UpdateAttemptDto, userId: string) {
+    const attempt = await this.attemptRepository.findOne({
+      where: { id: attemptId },
+      relations: ['user', 'assignment', 'assignment.room'],
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('Attempt not found');
+    }
+
+    // Only the user who submitted can edit their attempt
+    if (attempt.user.id !== userId) {
+      throw new ForbiddenException('You can only edit your own submission');
+    }
+
+    // Cannot edit if already scored
+    if (attempt.score !== null) {
+      throw new BadRequestException('Cannot edit a submission that has already been scored');
+    }
+
+    // Check if editing is still allowed (before deadline or late submission enabled)
+    const assignment = attempt.assignment;
+    if (assignment.endAt && new Date() > assignment.endAt && !assignment.isTurnInLateEnabled) {
+      throw new BadRequestException('Assignment submission deadline has passed');
+    }
+
+    // Update fields if provided
+    if (updateAttemptDto.fileUrls) {
+      attempt.fileUrls = updateAttemptDto.fileUrls;
+    }
+    if (updateAttemptDto.note !== undefined) {
+      attempt.note = updateAttemptDto.note || null;
+    }
+
+    const saved = await this.attemptRepository.save(attempt);
+    return this.formatAttemptResponse(saved);
   }
 
   async getMyAttempt(assignmentId: string, userId: string) {

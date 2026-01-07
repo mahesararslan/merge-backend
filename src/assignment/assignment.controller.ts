@@ -17,6 +17,7 @@ import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { QueryInstructorAssignmentDto } from './dto/query-instructor-assignment.dto';
 import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
+import { UpdateAttemptDto } from './dto/update-attempt.dto';
 import { ScoreAttemptDto } from './dto/score-attempt.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 
@@ -91,6 +92,15 @@ export class AssignmentController {
   @Get(':id/my-attempt')
   getMyAttempt(@Param('id') id: string, @Request() req) {
     return this.assignmentService.getMyAttempt(id, req.user.id);
+  }
+
+  @Patch('attempts/:attemptId')
+  updateAttempt(
+    @Param('attemptId') attemptId: string,
+    @Body() updateAttemptDto: UpdateAttemptDto,
+    @Request() req,
+  ) {
+    return this.assignmentService.updateAttempt(attemptId, updateAttemptDto, req.user.id);
   }
 
   @Patch('attempts/:attemptId/score')

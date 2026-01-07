@@ -4,6 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { CacheInterceptor } from '@nestjs/cache-manager';
 import * as bodyParser from 'body-parser';
+import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -15,6 +16,8 @@ async function bootstrap() {
   // Larger limit only for notes routes (rich text content)
   app.use('/note', bodyParser.json({ limit: '10mb' }));
   app.use('/note', bodyParser.urlencoded({ limit: '10mb', extended: true }));
+
+  app.use(cookieParser());
 
   app.useGlobalPipes(
     new ValidationPipe({

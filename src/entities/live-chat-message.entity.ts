@@ -6,7 +6,6 @@ import {
   Unique,
   CreateDateColumn,
 } from 'typeorm';
-import { Message } from './message.entity';
 import { User } from './user.entity';
 
 @Entity('live_chat_messages')

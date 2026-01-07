@@ -6,17 +6,18 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 import { User } from './user.entity';
+import { Room } from './room.entity';
 
-@Entity('messages')
-export class Message {
+@Entity('general_chat_messages')
+export class GeneralChatMessage {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => User)
-  sender: User;
+  @ManyToOne(() => Room)
+  room: Room;
 
   @ManyToOne(() => User)
-  recipient: User;
+  author: User;
 
   @Column()
   content: string;
@@ -30,6 +31,4 @@ export class Message {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ nullable: true })
-  readAt: Date;
 }

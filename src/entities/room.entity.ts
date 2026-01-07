@@ -27,6 +27,9 @@ export class Room {
   @Column({ default: false })
   isPublic: boolean;
 
+  @Column({ default: false })
+  autoJoin: boolean;
+
   @Column()
   roomCode: string;
 

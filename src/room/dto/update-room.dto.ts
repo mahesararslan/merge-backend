@@ -17,6 +17,10 @@ export class UpdateRoomDto {
   isPublic?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  autoJoin?: boolean;
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   tagNames?: string[];

@@ -331,6 +331,8 @@ export class RoomService {
       room.description = updateRoomDto.description;
     if (updateRoomDto.isPublic !== undefined)
       room.isPublic = updateRoomDto.isPublic;
+    if (updateRoomDto.autoJoin !== undefined)
+      room.autoJoin = updateRoomDto.autoJoin;
 
     const savedRoom = await this.roomRepository.save(room);
     return this.formatRoomResponse(savedRoom);
@@ -391,8 +393,8 @@ export class RoomService {
       };
     }
 
-    // For public rooms, join directly
-    if (room.isPublic) {
+    // If autoJoin is enabled, join directly without approval
+    if (room.autoJoin) {
       const roomMember = this.roomMemberRepository.create({
         room,
         user,
@@ -406,7 +408,7 @@ export class RoomService {
       };
     }
 
-    // For private rooms, check if there's already a pending request
+    // For rooms without autoJoin, check if there's already a pending request
     const existingRequest = await this.joinRequestRepository.findOne({
       where: {
         room: { id: room.id },
@@ -448,7 +450,7 @@ export class RoomService {
       };
     }
 
-    // Create new join request for private room
+    // Create new join request
     const joinRequest = this.joinRequestRepository.create({
       room,
       user,
@@ -859,6 +861,13 @@ export class RoomService {
           image: m.user.image,
         }));
 
+        // Get moderator IDs
+        const moderators = await this.roomMemberRepository.find({
+          where: { room: { id: room.id }, role: 'moderator' as any },
+          relations: ['user'],
+        });
+        const moderatorIds = moderators.map(m => m.user.id);
+
         return {
           ...room,
           admin: {
@@ -872,6 +881,7 @@ export class RoomService {
           userRole: 'admin',
           memberCount: memberCount + 1, // +1 for admin
           members,
+          moderators: moderatorIds,
         };
       }),
     );
@@ -932,6 +942,13 @@ export class RoomService {
           image: m.user.image,
         }));
 
+        // Get moderator IDs
+        const moderators = await this.roomMemberRepository.find({
+          where: { room: { id: member.room.id }, role: 'moderator' as any },
+          relations: ['user'],
+        });
+        const moderatorIds = moderators.map(m => m.user.id);
+
         return {
           ...member.room,
           admin: {
@@ -947,6 +964,7 @@ export class RoomService {
           role: member.role, // Include role field
           joinedAt: member.joinedAt,
           members: membersList,
+          moderators: moderatorIds,
         };
       }),
     );
@@ -1359,6 +1377,7 @@ export class RoomService {
       title: room.title,
       description: room.description,
       isPublic: room.isPublic,
+      autoJoin: room.autoJoin,
       roomCode: room.roomCode,
       admin: this.formatUserInfo(room.admin),
       tags: room.tags?.map(tag => ({ id: tag.id, name: tag.name })) || [],

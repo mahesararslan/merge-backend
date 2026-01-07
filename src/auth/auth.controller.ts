@@ -135,7 +135,8 @@ export class AuthController {
   private setAuthCookies(res, accessToken: string, refreshToken: string) {
     const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      // secure: process.env.NODE_ENV === 'production',
+      secure: true,
       sameSite: 'none' as const,
     };
 

@@ -29,7 +29,7 @@ export class RefreshJwtStrategy extends PassportStrategy(Strategy, 'refresh-jwt'
 
     // the payload is already validated and then passed to this function. 
     async validate(req: Request, payload: AuthJwtPayload) {
-        const refreshToken = req?.cookies?.refresh_token;
+        const refreshToken = req?.cookies?.refreshToken;
         const userId = payload.sub;
         return await this.authService.validateRefreshToken(userId, refreshToken!); 
     }

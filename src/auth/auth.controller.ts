@@ -40,23 +40,31 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard('local')) 
   @Post('signin')
-  async login(@Request() req) {
-    return await this.authService.signin(req.user.id, req.user.twoFactorEnabled, req.user.email); 
+  async login(@Request() req, @Res({ passthrough: true }) res) {
+    const result = await this.authService.signin(req.user.id, req.user.twoFactorEnabled, req.user.email);
+    if ('token' in result && 'refreshToken' in result) {
+      this.setAuthCookies(res, result.token, result.refreshToken);
+    }
+    return result;
   }
 
   @Public()
   @HttpCode(HttpStatus.OK)
   @Get('verify')
-  async verifyEmail(@Query('token') token: string) {
-    return this.authService.verifyEmail(token);
+  async verifyEmail(@Query('token') token: string, @Res({ passthrough: true }) res) {
+    const result = await this.authService.verifyEmail(token);
+    this.setAuthCookies(res, result.token, result.refreshToken);
+    return result;
   }
 
   @Throttle({ default: { limit: 2, ttl: 10000 } }) // 2 req per 10 seconds
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('signin/otp')
-  async loginWithOTP(@Body() loginWithOTPDto: LoginWithOTPDto) {
-    return this.authService.loginWithOTP(loginWithOTPDto);
+  async loginWithOTP(@Body() loginWithOTPDto: LoginWithOTPDto, @Res({ passthrough: true }) res) {
+    const result = await this.authService.loginWithOTP(loginWithOTPDto);
+    this.setAuthCookies(res, result.token, result.refreshToken);
+    return result;
   }
 
   @Throttle({ default: { limit: 2, ttl: 10000 } })
@@ -77,8 +85,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(RefreshAuthGuard)
   @Post('refresh')
-  async refreshToken(@Req() req) { 
-    return await this.authService.refreshToken(req.user.id); 
+  async refreshToken(@Req() req, @Res({ passthrough: true }) res) {
+    const result = await this.authService.refreshToken(req.user.id);
+    this.setAuthCookies(res, result.token, result.refreshToken);
+    return result;
   }
 
   @Throttle({ default: { limit: 2, ttl: 10000 } }) //  2 req per 10 seconds
@@ -106,17 +116,42 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   @Get("/google/callback")
   async googleCallback(@Req() req, @Res() res) {
-    const response = await this.authService.login(req.user.id); 
+    const response = await this.authService.login(req.user.id);
+    this.setAuthCookies(res, response.token, response.refreshToken);
     res.redirect(`${process.env.FRONTEND_URL}/callback?token=${response.token}&refreshToken=${response.refreshToken}`);
   }
 
   @HttpCode(HttpStatus.OK)
   @Post('/logout')
-  async SignOut(@Req() req) {
+  async SignOut(@Req() req, @Res({ passthrough: true }) res) {
     this.authService.signOut(req.user.id);
+    this.clearAuthCookies(res);
     return {
       success: true,
       message: 'Successfully Signed Out'
     }
+  }
+
+  private setAuthCookies(res, accessToken: string, refreshToken: string) {
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+    };
+
+    res.cookie('accessToken', accessToken, {
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    res.cookie('refreshToken', refreshToken, {
+      ...cookieOptions,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+  }
+
+  private clearAuthCookies(res) {
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken');
   }
 }

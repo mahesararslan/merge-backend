@@ -31,4 +31,8 @@ export class UpdateAssignmentDto {
   @IsOptional()
   @IsBoolean()
   isTurnInLateEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isClosed?: boolean;
 }

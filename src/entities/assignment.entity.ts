@@ -40,6 +40,9 @@ export class Assignment {
   @Column({ default: false })
   isTurnInLateEnabled: boolean;
 
+  @Column({ default: false })
+  isClosed: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 }

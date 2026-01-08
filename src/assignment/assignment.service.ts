@@ -144,6 +144,10 @@ export class AssignmentService {
           .getQuery();
         return `NOT EXISTS ${ungradedSubQuery}`;
       });
+    } else if (filter === 'open') {
+      queryBuilder.andWhere('assignment.isClosed = :isClosed', { isClosed: false });
+    } else if (filter === 'closed') {
+      queryBuilder.andWhere('assignment.isClosed = :isClosed', { isClosed: true });
     }
 
     const [assignments, total] = await queryBuilder
@@ -161,8 +165,22 @@ export class AssignmentService {
         const gradedAttempts = await this.attemptRepository.count({
           where: { assignment: { id: assignment.id }, score: Not(IsNull()) },
         });
+        
+        // Determine assignment status for instructor
+        let status: 'open' | 'closed' | 'needs_grading' | 'all_graded';
+        if (assignment.isClosed) {
+          status = 'closed';
+        } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
+          status = 'all_graded';
+        } else if (totalAttempts > gradedAttempts) {
+          status = 'needs_grading';
+        } else {
+          status = 'open';
+        }
+
         return {
           ...this.formatAssignmentResponse(assignment),
+          status,
           totalAttempts,
           gradedAttempts,
           ungradedAttempts: totalAttempts - gradedAttempts,
@@ -228,7 +246,7 @@ export class AssignmentService {
         { now }
       );
     } else if (filter === 'missed') {
-      // Assignments not submitted and deadline passed and late submission not allowed
+      // Assignments not submitted and (deadline passed and late submission not allowed OR assignment is closed)
       queryBuilder.andWhere(qb => {
         const subQuery = qb
           .subQuery()
@@ -239,9 +257,10 @@ export class AssignmentService {
           .getQuery();
         return `NOT EXISTS ${subQuery}`;
       });
-      queryBuilder.andWhere('assignment.endAt IS NOT NULL');
-      queryBuilder.andWhere('assignment.endAt <= :now', { now });
-      queryBuilder.andWhere('assignment.isTurnInLateEnabled = false');
+      queryBuilder.andWhere(
+        '(assignment.isClosed = true OR (assignment.endAt IS NOT NULL AND assignment.endAt <= :now AND assignment.isTurnInLateEnabled = false))',
+        { now }
+      );
     }
 
     const [assignments, total] = await queryBuilder
@@ -257,10 +276,10 @@ export class AssignmentService {
           where: { assignment: { id: assignment.id }, user: { id: userId } },
         });
         
-        let status: 'pending' | 'completed' | 'missed';
+        let status: 'pending' | 'submitted' | 'graded' | 'missed';
         if (attempt) {
-          status = 'completed';
-        } else if (assignment.endAt && new Date(assignment.endAt) < now && !assignment.isTurnInLateEnabled) {
+          status = attempt.score !== null ? 'graded' : 'submitted';
+        } else if (assignment.isClosed || (assignment.endAt && new Date(assignment.endAt) < now && !assignment.isTurnInLateEnabled)) {
           status = 'missed';
         } else {
           status = 'pending';
@@ -269,6 +288,8 @@ export class AssignmentService {
         return {
           ...this.formatAssignmentResponse(assignment),
           submissionStatus: status,
+          submittedAt: attempt?.submitAt || null,
+          score: attempt?.score || null,
           attempt: attempt ? {
             id: attempt.id,
             submitAt: attempt.submitAt,
@@ -358,6 +379,11 @@ export class AssignmentService {
 
     if (!assignment) {
       throw new NotFoundException('Assignment not found');
+    }
+
+    // Check if assignment is closed
+    if (assignment.isClosed) {
+      throw new BadRequestException('This assignment has been closed by the instructor');
     }
 
     // Check if submission is allowed
@@ -542,6 +568,7 @@ export class AssignmentService {
       startAt: assignment.startAt,
       endAt: assignment.endAt,
       isTurnInLateEnabled: assignment.isTurnInLateEnabled,
+      isClosed: assignment.isClosed,
       createdAt: assignment.createdAt,
       room: assignment.room ? {
         id: assignment.room.id,

@@ -27,6 +27,6 @@ export class QueryInstructorAssignmentDto {
   roomId: string;
 
   @IsOptional()
-  @IsIn(['all', 'needs_grading', 'graded'])
-  filter?: 'all' | 'needs_grading' | 'graded' = 'all';
+  @IsIn(['all', 'needs_grading', 'graded', 'open', 'closed'])
+  filter?: 'all' | 'needs_grading' | 'graded' | 'open' | 'closed' = 'all';
 }

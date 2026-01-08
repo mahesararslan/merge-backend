@@ -136,9 +136,9 @@ export class AuthController {
     const cookieOptions = {
       httpOnly: true,
       // secure: process.env.NODE_ENV === 'production',
-      domain: '.onrender.com',
       secure: true,
       sameSite: 'none' as const,
+      domain: ".mergeedu.app"
     };
 
     res.cookie('accessToken', accessToken, {

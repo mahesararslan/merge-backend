@@ -42,4 +42,7 @@ export class Quiz {
 
   @OneToMany(() => QuizAttempt, (attempt) => attempt.quiz)
   attempts: QuizAttempt[];
+
+  @Column({ default: false })
+  isClosed: boolean;
 }

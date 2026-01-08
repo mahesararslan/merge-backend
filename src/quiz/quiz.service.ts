@@ -156,7 +156,7 @@ export class QuizService {
         { now }
       );
     } else if (filter === 'missed') {
-      // Quizzes not submitted and deadline passed
+      // Quizzes not submitted and (deadline passed OR quiz is closed)
       queryBuilder.andWhere(qb => {
         const subQuery = qb
           .subQuery()
@@ -167,8 +167,10 @@ export class QuizService {
           .getQuery();
         return `NOT EXISTS ${subQuery}`;
       });
-      queryBuilder.andWhere('quiz.deadline IS NOT NULL');
-      queryBuilder.andWhere('quiz.deadline <= :now', { now });
+      queryBuilder.andWhere(
+        '(quiz.isClosed = true OR (quiz.deadline IS NOT NULL AND quiz.deadline <= :now))',
+        { now }
+      );
     }
 
     const [quizzes, total] = await queryBuilder
@@ -184,10 +186,10 @@ export class QuizService {
           where: { quiz: { id: quiz.id }, user: { id: userId } },
         });
 
-        let status: 'pending' | 'completed' | 'missed';
+        let status: 'pending' | 'submitted' | 'graded' | 'missed';
         if (attempt) {
-          status = 'completed';
-        } else if (quiz.deadline && new Date(quiz.deadline) < now) {
+          status = attempt.score !== null ? 'graded' : 'submitted';
+        } else if (quiz.isClosed || (quiz.deadline && new Date(quiz.deadline) < now)) {
           status = 'missed';
         } else {
           status = 'pending';
@@ -196,6 +198,8 @@ export class QuizService {
         return {
           ...this.formatQuizResponse(quiz, false),
           submissionStatus: status,
+          submittedAt: attempt?.submittedAt || null,
+          score: attempt?.score || null,
           attempt: attempt ? {
             id: attempt.id,
             submittedAt: attempt.submittedAt,
@@ -244,6 +248,10 @@ export class QuizService {
       // Quizzes with deadline passed
       queryBuilder.andWhere('quiz.deadline IS NOT NULL');
       queryBuilder.andWhere('quiz.deadline <= :now', { now });
+    } else if (filter === 'open') {
+      queryBuilder.andWhere('quiz.isClosed = :isClosed', { isClosed: false });
+    } else if (filter === 'closed') {
+      queryBuilder.andWhere('quiz.isClosed = :isClosed', { isClosed: true });
     }
 
     const [quizzes, total] = await queryBuilder
@@ -264,20 +272,34 @@ export class QuizService {
           select: ['score'],
         });
 
+        // Count graded attempts (those with a score)
+        const gradedAttempts = attempts.filter(a => a.score !== null).length;
+        const ungradedAttempts = totalAttempts - gradedAttempts;
+
         const averageScore = attempts.length > 0
           ? attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length
           : null;
 
-        let status: 'active' | 'upcoming' | 'ended';
-        if (!quiz.deadline || new Date(quiz.deadline) > now) {
-          status = 'active';
-        } else {
+        // Determine assignment status for instructor
+        let status: 'open' | 'closed' | 'needs_grading' | 'all_graded' | 'ended';
+        if (quiz.isClosed) {
+          status = 'closed';
+        } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
           status = 'ended';
+        } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
+          status = 'all_graded';
+        } else if (ungradedAttempts > 0) {
+          status = 'needs_grading';
+        } else {
+          status = 'open';
         }
 
         return {
           ...this.formatQuizResponse(quiz, false),
           status,
+          totalAttempts,
+          gradedAttempts,
+          ungradedAttempts,
           stats: {
             totalAttempts,
             averageScore: averageScore !== null ? Math.round(averageScore * 100) / 100 : null,
@@ -395,6 +417,11 @@ export class QuizService {
       throw new NotFoundException('Quiz not found');
     }
 
+    // Check if quiz is closed
+    if (quiz.isClosed) {
+      throw new BadRequestException('This quiz has been closed by the instructor');
+    }
+
     // Check deadline
     if (quiz.deadline && new Date() > quiz.deadline) {
       throw new BadRequestException('Quiz deadline has passed');
@@ -497,6 +524,7 @@ export class QuizService {
       timeLimitMin: quiz.timeLimitMin,
       deadline: quiz.deadline,
       createdAt: quiz.createdAt,
+      isClosed: quiz.isClosed,
       room: quiz.room ? {
         id: quiz.room.id,
         title: quiz.room.title,

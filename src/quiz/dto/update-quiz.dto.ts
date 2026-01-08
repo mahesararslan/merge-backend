@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min, IsArray, ValidateNested, ArrayMinSize } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, IsArray, ValidateNested, ArrayMinSize, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { QuizQuestionDto } from './create-quiz.dto';
 
@@ -21,4 +21,8 @@ export class UpdateQuizDto {
   @ValidateNested({ each: true })
   @Type(() => QuizQuestionDto)
   questions?: QuizQuestionDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  isClosed?: boolean;
 }

@@ -11,7 +11,7 @@ export class QueryStudentQuizDto {
   limit?: number = 20;
 
   @IsOptional()
-  @IsIn(['title', 'createdAt', 'deadline'])
+  @IsIn(['title', 'createdAt', 'deadline', 'totalScore'])
   sortBy?: string = 'createdAt';
 
   @IsOptional()

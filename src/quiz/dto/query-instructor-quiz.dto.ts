@@ -11,7 +11,7 @@ export class QueryInstructorQuizDto {
   limit?: number = 20;
 
   @IsOptional()
-  @IsIn(['title', 'createdAt', 'deadline'])
+  @IsIn(['title', 'createdAt', 'deadline', 'totalScore'])
   sortBy?: string = 'createdAt';
 
   @IsOptional()
@@ -27,6 +27,6 @@ export class QueryInstructorQuizDto {
   roomId: string;
 
   @IsOptional()
-  @IsIn(['all', 'active', 'upcoming', 'ended'])
-  filter?: 'all' | 'active' | 'upcoming' | 'ended' = 'all';
+  @IsIn(['all', 'active', 'upcoming', 'ended', 'open', 'closed'])
+  filter?: 'all' | 'active' | 'upcoming' | 'ended' | 'open' | 'closed' = 'all';
 }

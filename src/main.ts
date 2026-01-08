@@ -29,7 +29,7 @@ async function bootstrap() {
 
   const allowedOrigins = process.env.ALLOWED_ORIGINS 
     ? process.env.ALLOWED_ORIGINS.split(',')
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', 'https://merge-edu.netlify.app', 'https://merge-frontend.onrender.com', 'https://mergeedu.app', 'https://merge-frontend-five.vercel.app'];
+    : ['http://localhost:3000', 'https://www.mergeedu.app','http://localhost:3001', 'http://localhost:5173', 'https://merge-edu.netlify.app', 'https://merge-frontend.onrender.com', 'https://merge-frontend-five.vercel.app'];
 
   app.enableCors({
     origin: allowedOrigins,

@@ -10,6 +10,8 @@ import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { QueryQuizDto } from './dto/query-quiz.dto';
+import { QueryStudentQuizDto } from './dto/query-student-quiz.dto';
+import { QueryInstructorQuizDto } from './dto/query-instructor-quiz.dto';
 
 @Injectable()
 export class QuizService {
@@ -102,6 +104,190 @@ export class QuizService {
 
     return {
       quizzes: quizzes.map(q => this.formatQuizResponse(q, false)),
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    };
+  }
+
+  async findAllForStudent(queryDto: QueryStudentQuizDto, userId: string) {
+    const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC', search, roomId, filter = 'all' } = queryDto;
+    const skip = (page - 1) * limit;
+    const now = new Date();
+
+    let queryBuilder = this.quizRepository
+      .createQueryBuilder('quiz')
+      .leftJoinAndSelect('quiz.room', 'room')
+      .leftJoinAndSelect('quiz.author', 'author')
+      .leftJoinAndSelect('quiz.questions', 'questions')
+      .where('quiz.room.id = :roomId', { roomId });
+
+    if (search) {
+      queryBuilder.andWhere('quiz.title ILIKE :search', { search: `%${search}%` });
+    }
+
+    // Apply student-specific filters
+    if (filter === 'completed') {
+      // Quizzes the student has submitted
+      queryBuilder.andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('quiz_attempts', 'attempt')
+          .where('attempt.quizId = quiz.id')
+          .andWhere('attempt.userId = :userId', { userId })
+          .getQuery();
+        return `EXISTS ${subQuery}`;
+      });
+    } else if (filter === 'pending') {
+      // Quizzes not submitted and (no deadline OR deadline not passed)
+      queryBuilder.andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('quiz_attempts', 'attempt')
+          .where('attempt.quizId = quiz.id')
+          .andWhere('attempt.userId = :userId', { userId })
+          .getQuery();
+        return `NOT EXISTS ${subQuery}`;
+      });
+      queryBuilder.andWhere(
+        '(quiz.deadline IS NULL OR quiz.deadline > :now)',
+        { now }
+      );
+    } else if (filter === 'missed') {
+      // Quizzes not submitted and deadline passed
+      queryBuilder.andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('1')
+          .from('quiz_attempts', 'attempt')
+          .where('attempt.quizId = quiz.id')
+          .andWhere('attempt.userId = :userId', { userId })
+          .getQuery();
+        return `NOT EXISTS ${subQuery}`;
+      });
+      queryBuilder.andWhere('quiz.deadline IS NOT NULL');
+      queryBuilder.andWhere('quiz.deadline <= :now', { now });
+    }
+
+    const [quizzes, total] = await queryBuilder
+      .orderBy(`quiz.${sortBy}`, sortOrder)
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    // Get submission status for each quiz
+    const quizzesWithStatus = await Promise.all(
+      quizzes.map(async (quiz) => {
+        const attempt = await this.attemptRepository.findOne({
+          where: { quiz: { id: quiz.id }, user: { id: userId } },
+        });
+
+        let status: 'pending' | 'completed' | 'missed';
+        if (attempt) {
+          status = 'completed';
+        } else if (quiz.deadline && new Date(quiz.deadline) < now) {
+          status = 'missed';
+        } else {
+          status = 'pending';
+        }
+
+        return {
+          ...this.formatQuizResponse(quiz, false),
+          submissionStatus: status,
+          attempt: attempt ? {
+            id: attempt.id,
+            submittedAt: attempt.submittedAt,
+            score: attempt.score,
+          } : null,
+        };
+      })
+    );
+
+    return {
+      quizzes: quizzesWithStatus,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    };
+  }
+
+  async findAllForInstructor(queryDto: QueryInstructorQuizDto, userId: string) {
+    const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC', search, roomId, filter = 'all' } = queryDto;
+    const skip = (page - 1) * limit;
+    const now = new Date();
+
+    let queryBuilder = this.quizRepository
+      .createQueryBuilder('quiz')
+      .leftJoinAndSelect('quiz.room', 'room')
+      .leftJoinAndSelect('quiz.author', 'author')
+      .leftJoinAndSelect('quiz.questions', 'questions')
+      .where('quiz.room.id = :roomId', { roomId });
+
+    if (search) {
+      queryBuilder.andWhere('quiz.title ILIKE :search', { search: `%${search}%` });
+    }
+
+    // Apply instructor-specific filters
+    if (filter === 'active') {
+      // Quizzes with no deadline or deadline not yet passed
+      queryBuilder.andWhere(
+        '(quiz.deadline IS NULL OR quiz.deadline > :now)',
+        { now }
+      );
+    } else if (filter === 'upcoming') {
+      // Quizzes with deadline in the future (only those with deadlines)
+      queryBuilder.andWhere('quiz.deadline IS NOT NULL');
+      queryBuilder.andWhere('quiz.deadline > :now', { now });
+    } else if (filter === 'ended') {
+      // Quizzes with deadline passed
+      queryBuilder.andWhere('quiz.deadline IS NOT NULL');
+      queryBuilder.andWhere('quiz.deadline <= :now', { now });
+    }
+
+    const [quizzes, total] = await queryBuilder
+      .orderBy(`quiz.${sortBy}`, sortOrder)
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    // Get attempt statistics for each quiz
+    const quizzesWithStats = await Promise.all(
+      quizzes.map(async (quiz) => {
+        const totalAttempts = await this.attemptRepository.count({
+          where: { quiz: { id: quiz.id } },
+        });
+
+        const attempts = await this.attemptRepository.find({
+          where: { quiz: { id: quiz.id } },
+          select: ['score'],
+        });
+
+        const averageScore = attempts.length > 0
+          ? attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length
+          : null;
+
+        let status: 'active' | 'upcoming' | 'ended';
+        if (!quiz.deadline || new Date(quiz.deadline) > now) {
+          status = 'active';
+        } else {
+          status = 'ended';
+        }
+
+        return {
+          ...this.formatQuizResponse(quiz, false),
+          status,
+          stats: {
+            totalAttempts,
+            averageScore: averageScore !== null ? Math.round(averageScore * 100) / 100 : null,
+          },
+        };
+      })
+    );
+
+    return {
+      quizzes: quizzesWithStats,
       total,
       totalPages: Math.ceil(total / limit),
       currentPage: page,

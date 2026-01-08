@@ -15,6 +15,8 @@ import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { QueryQuizDto } from './dto/query-quiz.dto';
+import { QueryStudentQuizDto } from './dto/query-student-quiz.dto';
+import { QueryInstructorQuizDto } from './dto/query-instructor-quiz.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 import { RoomMemberRole } from '../entities/room-member.entity';
 import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
@@ -37,6 +39,20 @@ export class QuizController {
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   findAll(@Query() queryDto: QueryQuizDto, @Request() req) {
     return this.quizService.findAll(queryDto, req.user.id);
+  }
+
+  @Get('instructor')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  findAllForInstructor(@Query() queryDto: QueryInstructorQuizDto, @Request() req) {
+    return this.quizService.findAllForInstructor(queryDto, req.user.id);
+  }
+
+  @Get('student')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  findAllForStudent(@Query() queryDto: QueryStudentQuizDto, @Request() req) {
+    return this.quizService.findAllForStudent(queryDto, req.user.id);
   }
 
   @Get(':id')

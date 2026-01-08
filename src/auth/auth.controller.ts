@@ -136,7 +136,7 @@ export class AuthController {
     const cookieOptions = {
       httpOnly: true,
       // secure: process.env.NODE_ENV === 'production',
-      domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : 'localhost',
+      domain: '.onrender.com',
       secure: true,
       sameSite: 'none' as const,
     };

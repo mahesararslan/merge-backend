@@ -138,7 +138,7 @@ export class AuthController {
       // secure: process.env.NODE_ENV === 'production',
       secure: true,
       sameSite: 'none' as const,
-      domain: ".mergeedu.app"
+      domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined,
     };
 
     res.cookie('accessToken', accessToken, {

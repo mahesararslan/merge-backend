@@ -11,6 +11,7 @@ import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { QueryInstructorAssignmentDto } from './dto/query-instructor-assignment.dto';
 import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
+import { QueryAttemptsDto } from './dto/query-attempts.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { UpdateAttemptDto } from './dto/update-attempt.dto';
 
@@ -325,6 +326,137 @@ export class AssignmentService {
     }
 
     return this.formatAssignmentResponse(assignment);
+  }
+
+  async findOneForStudent(id: string, userId: string) {
+    const assignment = await this.assignmentRepository.findOne({
+      where: { id },
+      relations: ['room', 'room.admin', 'author'],
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Assignment not found');
+    }
+
+    // Check access
+    const hasAccess = await this.checkRoomAccess(userId, assignment.room.id);
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to this assignment');
+    }
+
+    const now = new Date();
+    const attempt = await this.attemptRepository.findOne({
+      where: { assignment: { id: assignment.id }, user: { id: userId } },
+      relations: ['user'],
+    });
+
+    let submissionStatus: 'pending' | 'submitted' | 'graded' | 'missed';
+    if (attempt) {
+      submissionStatus = attempt.score !== null ? 'graded' : 'submitted';
+    } else if (assignment.isClosed || (assignment.endAt && new Date(assignment.endAt) < now && !assignment.isTurnInLateEnabled)) {
+      submissionStatus = 'missed';
+    } else {
+      submissionStatus = 'pending';
+    }
+
+    return {
+      ...this.formatAssignmentResponse(assignment),
+      submissionStatus,
+      submittedAt: attempt?.submitAt || null,
+      score: attempt?.score || null,
+      attempt: attempt ? {
+        id: attempt.id,
+        submitAt: attempt.submitAt,
+        score: attempt.score,
+        fileUrls: attempt.fileUrls,
+        note: attempt.note,
+      } : null,
+    };
+  }
+
+  async findOneForInstructor(id: string, queryDto: QueryAttemptsDto, userId: string) {
+    const { page = 1, limit = 20, sortBy = 'submitAt', sortOrder = 'DESC', filter = 'all' } = queryDto;
+    const skip = (page - 1) * limit;
+
+    const assignment = await this.assignmentRepository.findOne({
+      where: { id },
+      relations: ['room', 'room.admin', 'author'],
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Assignment not found');
+    }
+
+    // Only room admin can access instructor view
+    if (assignment.room.admin.id !== userId) {
+      throw new ForbiddenException('Only room admin can access this view');
+    }
+
+    // Build query for attempts with pagination
+    let queryBuilder = this.attemptRepository
+      .createQueryBuilder('attempt')
+      .leftJoinAndSelect('attempt.user', 'user')
+      .where('attempt.assignment.id = :assignmentId', { assignmentId: id });
+
+    // Apply filter
+    if (filter === 'graded') {
+      queryBuilder.andWhere('attempt.score IS NOT NULL');
+    } else if (filter === 'ungraded') {
+      queryBuilder.andWhere('attempt.score IS NULL');
+    }
+
+    const [attempts, total] = await queryBuilder
+      .orderBy(`attempt.${sortBy}`, sortOrder)
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    // Get stats
+    const totalAttempts = await this.attemptRepository.count({
+      where: { assignment: { id: assignment.id } },
+    });
+    const gradedAttempts = await this.attemptRepository.count({
+      where: { assignment: { id: assignment.id }, score: Not(IsNull()) },
+    });
+
+    // Determine assignment status
+    let status: 'open' | 'closed' | 'needs_grading' | 'all_graded';
+    if (assignment.isClosed) {
+      status = 'closed';
+    } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
+      status = 'all_graded';
+    } else if (totalAttempts > gradedAttempts) {
+      status = 'needs_grading';
+    } else {
+      status = 'open';
+    }
+
+    return {
+      ...this.formatAssignmentResponse(assignment),
+      status,
+      totalAttempts,
+      gradedAttempts,
+      ungradedAttempts: totalAttempts - gradedAttempts,
+      attempts: {
+        data: attempts.map(a => ({
+          id: a.id,
+          submitAt: a.submitAt,
+          score: a.score,
+          fileUrls: a.fileUrls,
+          note: a.note,
+          user: a.user ? {
+            id: a.user.id,
+            firstName: a.user.firstName,
+            lastName: a.user.lastName,
+            email: a.user.email,
+            image: a.user.image,
+          } : null,
+        })),
+        total,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+      },
+    };
   }
 
   async update(id: string, updateAssignmentDto: UpdateAssignmentDto, userId: string) {

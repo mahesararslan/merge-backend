@@ -19,6 +19,7 @@ import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { UpdateAttemptDto } from './dto/update-attempt.dto';
 import { ScoreAttemptDto } from './dto/score-attempt.dto';
+import { QueryAttemptsDto } from './dto/query-attempts.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 
 import { RoomRoles } from '../auth/decorators/room-roles.decorator';
@@ -56,6 +57,24 @@ export class AssignmentController {
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   findAllForStudent(@Query() queryDto: QueryStudentAssignmentDto, @Request() req) {
     return this.assignmentService.findAllForStudent(queryDto, req.user.id);
+  }
+
+  @Get('student/:id')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  findOneForStudent(@Param('id') id: string, @Request() req) {
+    return this.assignmentService.findOneForStudent(id, req.user.id);
+  }
+
+  @Get('instructor/:id')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  findOneForInstructor(
+    @Param('id') id: string,
+    @Query() queryDto: QueryAttemptsDto,
+    @Request() req,
+  ) {
+    return this.assignmentService.findOneForInstructor(id, queryDto, req.user.id);
   }
 
   @Get(':id')

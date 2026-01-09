@@ -196,12 +196,12 @@ export class AuthService {
 
   async validateRefreshToken(userId: string, refreshToken: string) {
     const user = await this.userService.getUserwithAuth(userId);
-    if (!user || !user.auth?.hashedRefreshToken) throw new UnauthorizedException('Access Denied');
+    if (!user || !user.auth?.hashedRefreshToken) throw new UnauthorizedException('Access Denied because no hashed refresh token found');
     const isRefreshTokenValid = await argon2.verify(
       user.auth.hashedRefreshToken,
       refreshToken,
     );
-    if (!isRefreshTokenValid) throw new UnauthorizedException('Access Denied');
+    if (!isRefreshTokenValid) throw new UnauthorizedException('Access Denied because invalid refresh token when matching hashes');
     return { id: user.id };
   }
 

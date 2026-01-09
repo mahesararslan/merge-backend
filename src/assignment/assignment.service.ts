@@ -145,8 +145,6 @@ export class AssignmentService {
           .getQuery();
         return `NOT EXISTS ${ungradedSubQuery}`;
       });
-    } else if (filter === 'open') {
-      queryBuilder.andWhere('assignment.isClosed = :isClosed', { isClosed: false });
     } else if (filter === 'closed') {
       queryBuilder.andWhere('assignment.isClosed = :isClosed', { isClosed: true });
     }
@@ -168,15 +166,13 @@ export class AssignmentService {
         });
         
         // Determine assignment status for instructor
-        let status: 'open' | 'closed' | 'needs_grading' | 'all_graded';
+        let status: 'closed' | 'needs_grading' | 'graded';
         if (assignment.isClosed) {
           status = 'closed';
-        } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
-          status = 'all_graded';
-        } else if (totalAttempts > gradedAttempts) {
+        } else if (totalAttempts > 0 && totalAttempts > gradedAttempts) {
           status = 'needs_grading';
         } else {
-          status = 'open';
+          status = 'graded';
         }
 
         return {
@@ -420,15 +416,13 @@ export class AssignmentService {
     });
 
     // Determine assignment status
-    let status: 'open' | 'closed' | 'needs_grading' | 'all_graded';
+    let status: 'closed' | 'needs_grading' | 'graded';
     if (assignment.isClosed) {
       status = 'closed';
-    } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
-      status = 'all_graded';
-    } else if (totalAttempts > gradedAttempts) {
+    } else if (totalAttempts > 0 && totalAttempts > gradedAttempts) {
       status = 'needs_grading';
     } else {
-      status = 'open';
+      status = 'graded';
     }
 
     return {

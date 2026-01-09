@@ -87,6 +87,7 @@ export class AuthController {
   @Post('refresh')
   async refreshToken(@Req() req, @Res({ passthrough: true }) res) {
     const result = await this.authService.refreshToken(req.user.id);
+    this.clearAuthCookies(res);
     this.setAuthCookies(res, result.token, result.refreshToken);
     return result;
   }

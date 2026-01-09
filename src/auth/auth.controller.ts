@@ -142,14 +142,17 @@ export class AuthController {
       domain: ".mergeedu.app"
     };
 
+    const accessTokenExpiryMinutes = parseInt(process.env.ACCESS_TOKEN_EXPIRY_MINUTES || '15', 10);
+    const refreshTokenExpiryDays = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || '7', 10);
+
     res.cookie('accessToken', accessToken, {
       ...cookieOptions,
-      maxAge: 0.5 * 60 * 1000, // 15 minutes
+      maxAge: accessTokenExpiryMinutes * 60 * 1000,
     });
 
     res.cookie('refreshToken', refreshToken, {
       ...cookieOptions,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: refreshTokenExpiryDays * 24 * 60 * 60 * 1000,
     });
   }
 

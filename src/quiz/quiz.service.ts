@@ -12,6 +12,7 @@ import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { QueryQuizDto } from './dto/query-quiz.dto';
 import { QueryStudentQuizDto } from './dto/query-student-quiz.dto';
 import { QueryInstructorQuizDto } from './dto/query-instructor-quiz.dto';
+import { QueryQuizAttemptsDto } from './dto/query-quiz-attempts.dto';
 
 @Injectable()
 export class QuizService {
@@ -327,6 +328,157 @@ export class QuizService {
     }
 
     return this.formatQuizResponse(quiz, false);
+  }
+
+  async findOneForStudent(id: string, userId: string) {
+    const quiz = await this.quizRepository.findOne({
+      where: { id },
+      relations: ['room', 'room.admin', 'author', 'questions'],
+    });
+
+    if (!quiz) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    const now = new Date();
+    const attempt = await this.attemptRepository.findOne({
+      where: { quiz: { id: quiz.id }, user: { id: userId } },
+      relations: ['user'],
+    });
+
+    let submissionStatus: 'pending' | 'submitted' | 'graded' | 'missed';
+    if (attempt) {
+      submissionStatus = attempt.score !== null ? 'graded' : 'submitted';
+    } else if (quiz.isClosed || (quiz.deadline && new Date(quiz.deadline) < now)) {
+      submissionStatus = 'missed';
+    } else {
+      submissionStatus = 'pending';
+    }
+
+    return {
+      ...this.formatQuizResponse(quiz, false),
+      submissionStatus,
+      submittedAt: attempt?.submittedAt || null,
+      score: attempt?.score || null,
+      attempted: !!attempt,
+      attempt: attempt ? {
+        id: attempt.id,
+        submittedAt: attempt.submittedAt,
+        score: attempt.score,
+        answers: attempt.answers,
+      } : null,
+    };
+  }
+
+  async findOneForInstructor(id: string, queryDto: QueryQuizAttemptsDto, userId: string) {
+    const { page = 1, limit = 20, sortBy = 'submittedAt', sortOrder = 'DESC' } = queryDto;
+    const skip = (page - 1) * limit;
+
+    const quiz = await this.quizRepository.findOne({
+      where: { id },
+      relations: ['room', 'room.admin', 'author', 'questions'],
+    });
+
+    if (!quiz) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    // Only room admin can access instructor view
+    if (quiz.room.admin.id !== userId) {
+      throw new ForbiddenException('Only room admin can access this view');
+    }
+
+    // Get total attempts count
+    const totalAttempts = await this.attemptRepository.count({
+      where: { quiz: { id: quiz.id } },
+    });
+
+    // If no attempts, return quiz with null attempts
+    if (totalAttempts === 0) {
+      const now = new Date();
+      let status: 'open' | 'closed' | 'ended';
+      if (quiz.isClosed) {
+        status = 'closed';
+      } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
+        status = 'ended';
+      } else {
+        status = 'open';
+      }
+
+      return {
+        ...this.formatQuizResponse(quiz, true),
+        status,
+        totalAttempts: 0,
+        gradedAttempts: 0,
+        ungradedAttempts: 0,
+        averageScore: null,
+        attempts: null,
+      };
+    }
+
+    // Build query for attempts with pagination
+    const [attempts, total] = await this.attemptRepository
+      .createQueryBuilder('attempt')
+      .leftJoinAndSelect('attempt.user', 'user')
+      .where('attempt.quiz.id = :quizId', { quizId: id })
+      .orderBy(`attempt.${sortBy}`, sortOrder)
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    // Get stats
+    const allAttempts = await this.attemptRepository.find({
+      where: { quiz: { id: quiz.id } },
+      select: ['score'],
+    });
+
+    const gradedAttempts = allAttempts.filter(a => a.score !== null).length;
+    const ungradedAttempts = totalAttempts - gradedAttempts;
+    const averageScore = allAttempts.length > 0
+      ? allAttempts.reduce((sum, a) => sum + (a.score || 0), 0) / allAttempts.length
+      : null;
+
+    // Determine quiz status
+    const now = new Date();
+    let status: 'open' | 'closed' | 'needs_grading' | 'all_graded' | 'ended';
+    if (quiz.isClosed) {
+      status = 'closed';
+    } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
+      status = 'ended';
+    } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
+      status = 'all_graded';
+    } else if (ungradedAttempts > 0) {
+      status = 'needs_grading';
+    } else {
+      status = 'open';
+    }
+
+    return {
+      ...this.formatQuizResponse(quiz, true),
+      status,
+      totalAttempts,
+      gradedAttempts,
+      ungradedAttempts,
+      averageScore: averageScore !== null ? Math.round(averageScore * 100) / 100 : null,
+      attempts: {
+        data: attempts.map(a => ({
+          id: a.id,
+          submittedAt: a.submittedAt,
+          score: a.score,
+          answers: a.answers,
+          user: a.user ? {
+            id: a.user.id,
+            firstName: a.user.firstName,
+            lastName: a.user.lastName,
+            email: a.user.email,
+            image: a.user.image,
+          } : null,
+        })),
+        total,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+      },
+    };
   }
 
   async update(id: string, updateQuizDto: UpdateQuizDto, userId: string) {

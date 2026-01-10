@@ -136,11 +136,12 @@ export class AuthController {
   private setAuthCookies(res, accessToken: string, refreshToken: string) {
     const cookieOptions = {
       httpOnly: true,
-      // secure: process.env.NODE_ENV === 'production',
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'none' as const,
-      domain: ".mergeedu.app"
+      domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
     };
+
+    console.log('Setting cookies with options:', cookieOptions);
 
     const accessTokenExpiryMinutes = parseInt(process.env.ACCESS_TOKEN_EXPIRY_MINUTES || '15', 10);
     const refreshTokenExpiryDays = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || '7', 10);

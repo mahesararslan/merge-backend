@@ -1096,7 +1096,7 @@ export class RoomService {
 
   async getRoomContent(roomId: string, queryDto: QueryRoomContentDto, userId: string): Promise<{
     folders: any[];
-    files: File[];
+    files: any[];
     total: { folders: number; files: number; combined: number };
     pagination: {
       totalPages: number;
@@ -1108,7 +1108,7 @@ export class RoomService {
     currentFolder?: any;
     roomInfo: any;
   }> {
-    const { page, limit, sortBy, sortOrder, search, folderId } = queryDto;
+    const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC', search, folderId } = queryDto;
 
     // Get room info
     const room = await this.roomRepository.findOne({
@@ -1126,12 +1126,17 @@ export class RoomService {
     let currentFolder: Folder | null = null;
     let breadcrumb: any[] = [];
 
-    // If not root, get current folder info and breadcrumb
+    // If not root, get current folder info and breadcrumb in parallel
     if (!isRoot) {
-      currentFolder = await this.folderRepository.findOne({
-        where: { id: folderId },
-        relations: ['room', 'parentFolder'],
-      });
+      const [folder, breadcrumbResult] = await Promise.all([
+        this.folderRepository.findOne({
+          where: { id: folderId },
+          relations: ['room', 'parentFolder'],
+        }),
+        this.generateFolderBreadcrumb(folderId),
+      ]);
+
+      currentFolder = folder;
 
       if (!currentFolder) {
         throw new NotFoundException('Folder not found');
@@ -1141,26 +1146,35 @@ export class RoomService {
         throw new ForbiddenException('Folder does not belong to this room');
       }
 
-      breadcrumb = await this.generateFolderBreadcrumb(folderId);
+      breadcrumb = breadcrumbResult;
     }
 
-    // Build folder query
+    // Build folder query with optimized selects and subfolder count
     let folderQueryBuilder = this.folderRepository
       .createQueryBuilder('folder')
-      .leftJoinAndSelect('folder.room', 'room')
-      .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
-      .leftJoinAndSelect('folder.owner', 'owner')
+      .leftJoin('folder.room', 'room')
+      .addSelect(['room.id'])
+      .leftJoin('folder.parentFolder', 'parentFolder')
+      .addSelect(['parentFolder.id', 'parentFolder.name'])
+      .leftJoin('folder.owner', 'owner')
+      .addSelect(['owner.id', 'owner.firstName', 'owner.lastName', 'owner.email', 'owner.image'])
+      .loadRelationCountAndMap('folder.subfolderCount', 'folder.subfolders', 'subfolder', (qb) =>
+        qb.where('subfolder.type = :type', { type: FolderType.ROOM })
+      )
       .where('folder.room.id = :roomId AND folder.type = :folderType', {
         roomId,
         folderType: FolderType.ROOM,
       });
 
-    // Build file query
+    // Build file query with optimized selects
     let fileQueryBuilder = this.fileRepository
       .createQueryBuilder('file')
-      .leftJoinAndSelect('file.uploader', 'uploader')
-      .leftJoinAndSelect('file.room', 'room')
-      .leftJoinAndSelect('file.folder', 'folder')
+      .leftJoin('file.uploader', 'uploader')
+      .addSelect(['uploader.id', 'uploader.firstName', 'uploader.lastName', 'uploader.email', 'uploader.image'])
+      .leftJoin('file.room', 'room')
+      .addSelect(['room.id'])
+      .leftJoin('file.folder', 'folder')
+      .addSelect(['folder.id', 'folder.name'])
       .where('file.room.id = :roomId', { roomId });
 
     // Filter by folder location
@@ -1172,7 +1186,7 @@ export class RoomService {
       fileQueryBuilder.andWhere('file.folder.id = :folderId', { folderId });
     }
 
-    // Apply search filter to both folders and files
+    // Apply search filter
     if (search) {
       folderQueryBuilder.andWhere('folder.name ILIKE :search', { search: `%${search}%` });
       fileQueryBuilder.andWhere(
@@ -1181,102 +1195,61 @@ export class RoomService {
       );
     }
 
-    // Get total counts for pagination
-    const [totalFolders, totalFiles] = await Promise.all([
+    // Get counts in parallel
+    const [totalFolders, totalFiles, userRole] = await Promise.all([
       folderQueryBuilder.getCount(),
       fileQueryBuilder.getCount(),
+      this.getUserRoleInRoom(userId, roomId),
     ]);
 
     const totalCombined = totalFolders + totalFiles;
-    const totalPages = Math.ceil(totalCombined / (limit || 10));
-    const skip = ((page || 1) - 1) * (limit || 10);
+    const totalPages = Math.ceil(totalCombined / limit);
+    const skip = (page - 1) * limit;
 
-    // For combined sorting, we need to handle folders and files together
-    let folders: any[] = [];
-    let files: any[] = [];
+    // Calculate optimized pagination
+    const foldersToSkip = Math.min(skip, totalFolders);
+    const foldersToTake = Math.min(Math.max(0, limit - Math.max(0, skip - totalFolders)), totalFolders - foldersToSkip);
+    const filesToSkip = Math.max(0, skip - totalFolders);
+    const filesToTake = limit - foldersToTake;
 
-    if (sortBy === 'name' || sortBy === 'createdAt' || sortBy === 'updatedAt') {
-      // Get all folders and files, then sort them together
-      const allFolders = await folderQueryBuilder
-        .orderBy(`folder.${sortBy === 'name' ? 'name' : sortBy}`, sortOrder)
-        .getMany();
+    const sortField = sortBy === 'name' ? 'name' : sortBy;
+    const fileSortField = sortBy === 'name' ? 'originalName' : sortBy;
 
-      const allFiles = await fileQueryBuilder
-        .orderBy(`file.${sortBy === 'name' ? 'originalName' : sortBy}`, sortOrder)
-        .getMany();
+    // Fetch folders and files in parallel
+    const [folders, files] = await Promise.all([
+      foldersToTake > 0
+        ? folderQueryBuilder
+            .orderBy(`folder.${sortField}`, sortOrder)
+            .skip(foldersToSkip)
+            .take(foldersToTake)
+            .getMany()
+        : Promise.resolve([]),
+      filesToTake > 0
+        ? fileQueryBuilder
+            .orderBy(`file.${fileSortField}`, sortOrder)
+            .skip(filesToSkip)
+            .take(filesToTake)
+            .getMany()
+        : Promise.resolve([]),
+    ]);
 
-      // Combine and sort
-      const combined = [
-        ...allFolders.map(folder => ({ 
-          ...folder, 
-          itemType: 'folder', 
-          sortValue: folder[sortBy === 'name' ? 'name' : sortBy] 
-        })),
-        ...allFiles.map(file => ({ 
-          ...file, 
-          itemType: 'file', 
-          sortValue: file[sortBy === 'name' ? 'originalName' : sortBy] 
-        }))
-      ];
+    // Get file counts for folders in a single query
+    let foldersWithCounts: any[] = folders;
+    if (folders.length > 0) {
+      const folderIds = folders.map(f => f.id);
+      const fileCounts = await this.fileRepository
+        .createQueryBuilder('file')
+        .select('file.folder.id', 'folderId')
+        .addSelect('COUNT(file.id)', 'count')
+        .where('file.folder.id IN (:...folderIds)', { folderIds })
+        .andWhere('file.room.id = :roomId', { roomId })
+        .groupBy('file.folder.id')
+        .getRawMany();
 
-      // Sort combined results
-      combined.sort((a, b) => {
-        const aValue = new Date(a.sortValue).getTime() || a.sortValue;
-        const bValue = new Date(b.sortValue).getTime() || b.sortValue;
-        
-        if (sortOrder === 'ASC') {
-          return aValue > bValue ? 1 : -1;
-        } else {
-          return aValue < bValue ? 1 : -1;
-        }
-      });
+      const fileCountMap = new Map(fileCounts.map(fc => [fc.folderId, parseInt(fc.count)]));
 
-      // Apply pagination to combined results
-      const paginatedCombined = combined.slice(skip, skip + (limit || 10));
-
-      // Separate back to folders and files
-      folders = paginatedCombined.filter(item => item.itemType === 'folder');
-      files = paginatedCombined.filter(item => item.itemType === 'file');
-
-      // Clean up the extra properties
-      folders = folders.map(({ itemType, sortValue, ...folder }) => folder);
-      files = files.map(({ itemType, sortValue, ...file }) => file);
-    } else {
-      // For title sorting, prioritize folders first, then files
-      if (skip < totalFolders) {
-        folders = await folderQueryBuilder
-          .orderBy('folder.name', sortOrder)
-          .skip(skip)
-          .take(Math.min(totalFolders - skip, limit || 10))
-          .getMany();
-
-        if (folders.length < (limit || 10)) {
-          files = await fileQueryBuilder
-            .orderBy('file.originalName', sortOrder)
-            .take((limit || 10) - folders.length)
-            .getMany();
-        }
-      } else {
-        files = await fileQueryBuilder
-          .orderBy('file.originalName', sortOrder)
-          .skip(skip - totalFolders)
-          .take(limit || 10)
-          .getMany();
-      }
-    }
-
-    // Add counts to folders and format owner info
-    const foldersWithCounts = await Promise.all(
-      folders.map(async (folder) => {
-        const [subfolderCount, fileCount] = await Promise.all([
-          this.folderRepository.count({
-            where: { parentFolder: { id: folder.id }, room: { id: roomId } },
-          }),
-          this.fileRepository.count({
-            where: { folder: { id: folder.id }, room: { id: roomId } },
-          }),
-        ]);
-
+      foldersWithCounts = folders.map(folder => {
+        const folderWithCount = folder as any;
         return {
           ...folder,
           owner: folder.owner ? {
@@ -1286,14 +1259,13 @@ export class RoomService {
             email: folder.owner.email,
             image: folder.owner.image,
           } : null,
-          subfolderCount,
-          fileCount,
-          totalItems: subfolderCount + fileCount,
+          fileCount: fileCountMap.get(folder.id) || 0,
+          totalItems: (folderWithCount.subfolderCount || 0) + (fileCountMap.get(folder.id) || 0),
         };
-      })
-    );
+      });
+    }
 
-    // Format files to include uploader info
+    // Format files with uploader info
     const filesWithUploaderInfo = files.map(file => ({
       ...file,
       uploader: file.uploader ? {
@@ -1305,9 +1277,6 @@ export class RoomService {
       } : null,
     }));
 
-    // Get user's role in the room for permission context
-    const userRole = await this.getUserRoleInRoom(userId, roomId);
-
     return {
       folders: foldersWithCounts,
       files: filesWithUploaderInfo,
@@ -1318,9 +1287,9 @@ export class RoomService {
       },
       pagination: {
         totalPages,
-        currentPage: page || 1,
-        sortBy: sortBy || 'createdAt',
-        sortOrder: sortOrder || 'DESC',
+        currentPage: page,
+        sortBy,
+        sortOrder,
       },
       breadcrumb,
       currentFolder,
@@ -1332,32 +1301,29 @@ export class RoomService {
     };
   }
 
-  // Helper method to generate folder breadcrumb
+  // Helper method to generate folder breadcrumb - optimized with single recursive CTE query
   private async generateFolderBreadcrumb(folderId: string): Promise<any[]> {
-    const breadcrumb: any[] = [];
-    let currentFolder = await this.folderRepository.findOne({
-      where: { id: folderId },
-      relations: ['parentFolder'],
-    });
+    // Use a recursive query to get all ancestors in one database call
+    const result = await this.folderRepository.query(`
+      WITH RECURSIVE folder_path AS (
+        SELECT id, name, type, "parentFolderId", 1 as depth
+        FROM folders
+        WHERE id = $1
+        
+        UNION ALL
+        
+        SELECT f.id, f.name, f.type, f."parentFolderId", fp.depth + 1
+        FROM folders f
+        INNER JOIN folder_path fp ON f.id = fp."parentFolderId"
+      )
+      SELECT id, name, type FROM folder_path ORDER BY depth DESC
+    `, [folderId]);
 
-    while (currentFolder) {
-      breadcrumb.unshift({
-        id: currentFolder.id,
-        name: currentFolder.name,
-        type: currentFolder.type,
-      });
-
-      if (currentFolder.parentFolder) {
-        currentFolder = await this.folderRepository.findOne({
-          where: { id: currentFolder.parentFolder.id },
-          relations: ['parentFolder'],
-        });
-      } else {
-        break;
-      }
-    }
-
-    return breadcrumb;
+    return result.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+    }));
   }
 
   private formatUserInfo(user: User) {

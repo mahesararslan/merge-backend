@@ -133,6 +133,13 @@ export class AuthController {
     }
   }
 
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('validate-token')
+  async validateToken(@Body() body: { token: string }) {
+    return this.authService.validateAccessToken(body.token);
+  }
+
   private setAuthCookies(res, accessToken: string, refreshToken: string) {
     const cookieOptions = {
       httpOnly: true,

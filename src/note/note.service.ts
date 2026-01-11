@@ -76,12 +76,17 @@ export class NoteService {
     let currentFolder = null;
     let breadcrumb = [];
 
-    // If not root, get current folder info and breadcrumb
+    // If not root, get current folder info and breadcrumb in parallel
     if (!isRoot) {
-      currentFolder = await this.folderRepository.findOne({
-        where: { id: folderId },
-        relations: ['owner', 'parentFolder'],
-      });
+      const [folder, breadcrumbResult] = await Promise.all([
+        this.folderRepository.findOne({
+          where: { id: folderId },
+          relations: ['owner', 'parentFolder'],
+        }),
+        this.generateBreadcrumb(folderId),
+      ]);
+
+      currentFolder = folder;
 
       if (!currentFolder) {
         throw new NotFoundException('Folder not found');
@@ -91,14 +96,40 @@ export class NoteService {
         throw new ForbiddenException('You can only access your own notes folders');
       }
 
-      breadcrumb = await this.generateBreadcrumb(folderId);
+      breadcrumb = breadcrumbResult;
     }
 
-    // Build folder query
+    // Build base conditions
+    const folderConditions: any = {
+      owner: { id: userId },
+      type: FolderType.NOTES,
+    };
+    const noteConditions: any = {
+      owner: { id: userId },
+    };
+
+    if (isRoot) {
+      folderConditions.parentFolder = null;
+      noteConditions.folder = null;
+    } else {
+      folderConditions.parentFolder = { id: folderId };
+      noteConditions.folder = { id: folderId };
+    }
+
+    // Get counts and data in parallel using optimized queries
+    const sortField = sortBy === 'name' ? (sortBy === 'name' ? 'name' : sortBy) : sortBy;
+    const noteSortField = sortBy === 'name' ? 'title' : sortBy;
+
+    // Build folder query with subquery for counts
     let folderQueryBuilder = this.folderRepository
       .createQueryBuilder('folder')
-      .leftJoinAndSelect('folder.owner', 'owner')
-      .leftJoinAndSelect('folder.parentFolder', 'parentFolder')
+      .leftJoin('folder.owner', 'owner')
+      .addSelect(['owner.id', 'owner.firstName', 'owner.lastName', 'owner.email', 'owner.image'])
+      .leftJoin('folder.parentFolder', 'parentFolder')
+      .addSelect(['parentFolder.id', 'parentFolder.name'])
+      .loadRelationCountAndMap('folder.subfolderCount', 'folder.subfolders', 'subfolder', (qb) =>
+        qb.where('subfolder.type = :type', { type: FolderType.NOTES })
+      )
       .where('folder.owner.id = :userId AND folder.type = :folderType', {
         userId,
         folderType: FolderType.NOTES,
@@ -107,8 +138,10 @@ export class NoteService {
     // Build note query
     let noteQueryBuilder = this.noteRepository
       .createQueryBuilder('note')
-      .leftJoinAndSelect('note.owner', 'owner')
-      .leftJoinAndSelect('note.folder', 'folder')
+      .leftJoin('note.owner', 'owner')
+      .addSelect(['owner.id', 'owner.firstName', 'owner.lastName', 'owner.email', 'owner.image'])
+      .leftJoin('note.folder', 'folder')
+      .addSelect(['folder.id', 'folder.name'])
       .where('note.owner.id = :userId', { userId });
 
     // Filter by folder location
@@ -120,7 +153,7 @@ export class NoteService {
       noteQueryBuilder.andWhere('note.folder.id = :folderId', { folderId });
     }
 
-    // Apply search filter to both folders and notes
+    // Apply search filter
     if (search) {
       folderQueryBuilder.andWhere('folder.name ILIKE :search', { search: `%${search}%` });
       noteQueryBuilder.andWhere(
@@ -129,7 +162,7 @@ export class NoteService {
       );
     }
 
-    // Get total counts for pagination
+    // Get counts in parallel
     const [totalFolders, totalNotes] = await Promise.all([
       folderQueryBuilder.getCount(),
       noteQueryBuilder.getCount(),
@@ -139,92 +172,58 @@ export class NoteService {
     const totalPages = Math.ceil(totalCombined / limit);
     const skip = (page - 1) * limit;
 
-    // For combined sorting, we need to handle folders and notes together
+    // Optimized pagination: fetch only what's needed
     let folders = [];
     let notes = [];
 
-    if (sortBy === 'name' || sortBy === 'createdAt' || sortBy === 'updatedAt') {
-      // Get all folders and notes, then sort them together
-      const allFolders = await folderQueryBuilder
-        .orderBy(`folder.${sortBy === 'name' ? 'name' : sortBy}`, sortOrder)
-        .getMany();
+    // Calculate how many folders and notes to fetch based on pagination
+    const foldersToSkip = Math.min(skip, totalFolders);
+    const foldersToTake = Math.min(Math.max(0, limit - Math.max(0, skip - totalFolders)), totalFolders - foldersToSkip);
+    const notesToSkip = Math.max(0, skip - totalFolders);
+    const notesToTake = limit - foldersToTake;
 
-      const allNotes = await noteQueryBuilder
-        .orderBy(`note.${sortBy === 'name' ? 'title' : sortBy}`, sortOrder)
-        .getMany();
+    // Fetch folders and notes in parallel
+    const [foldersResult, notesResult] = await Promise.all([
+      foldersToTake > 0
+        ? folderQueryBuilder
+            .orderBy(`folder.${sortField}`, sortOrder)
+            .skip(foldersToSkip)
+            .take(foldersToTake)
+            .getMany()
+        : Promise.resolve([]),
+      notesToTake > 0
+        ? noteQueryBuilder
+            .orderBy(`note.${noteSortField}`, sortOrder)
+            .skip(notesToSkip)
+            .take(notesToTake)
+            .getMany()
+        : Promise.resolve([]),
+    ]);
 
-      // Combine and sort
-      const combined = [
-        ...allFolders.map(folder => ({ ...folder, itemType: 'folder', sortValue: folder[sortBy === 'name' ? 'name' : sortBy] })),
-        ...allNotes.map(note => ({ ...note, itemType: 'note', sortValue: note[sortBy === 'name' ? 'title' : sortBy] }))
-      ];
+    folders = foldersResult;
+    notes = notesResult;
 
-      // Sort combined results
-      combined.sort((a, b) => {
-        if (sortOrder === 'ASC') {
-          return a.sortValue > b.sortValue ? 1 : -1;
-        } else {
-          return a.sortValue < b.sortValue ? 1 : -1;
-        }
-      });
+    // Get note counts for folders in a single query
+    let foldersWithCounts = folders;
+    if (folders.length > 0) {
+      const folderIds = folders.map(f => f.id);
+      const noteCounts = await this.noteRepository
+        .createQueryBuilder('note')
+        .select('note.folder.id', 'folderId')
+        .addSelect('COUNT(note.id)', 'count')
+        .where('note.folder.id IN (:...folderIds)', { folderIds })
+        .andWhere('note.owner.id = :userId', { userId })
+        .groupBy('note.folder.id')
+        .getRawMany();
 
-      // Apply pagination to combined results
-      const paginatedCombined = combined.slice(skip, skip + limit);
+      const noteCountMap = new Map(noteCounts.map(nc => [nc.folderId, parseInt(nc.count)]));
 
-      // Separate back to folders and notes
-      folders = paginatedCombined.filter(item => item.itemType === 'folder');
-      notes = paginatedCombined.filter(item => item.itemType === 'note');
-
-      // Clean up the extra properties
-      folders = folders.map(({ itemType, sortValue, ...folder }) => folder);
-      notes = notes.map(({ itemType, sortValue, ...note }) => note);
-    } else {
-      // For title sorting, prioritize folders first, then notes
-      const foldersFirst = Math.min(totalFolders, Math.max(0, limit - Math.max(0, skip - totalFolders)));
-      const notesFirst = Math.min(totalNotes, Math.max(0, limit - Math.max(0, skip - totalNotes)));
-
-      if (skip < totalFolders) {
-        folders = await folderQueryBuilder
-          .orderBy('folder.name', sortOrder)
-          .skip(skip)
-          .take(foldersFirst)
-          .getMany();
-
-        if (folders.length < limit) {
-          notes = await noteQueryBuilder
-            .orderBy(`note.${sortBy}`, sortOrder)
-            .take(limit - folders.length)
-            .getMany();
-        }
-      } else {
-        notes = await noteQueryBuilder
-          .orderBy(`note.${sortBy}`, sortOrder)
-          .skip(skip - totalFolders)
-          .take(notesFirst)
-          .getMany();
-      }
+      foldersWithCounts = folders.map(folder => ({
+        ...folder,
+        noteCount: noteCountMap.get(folder.id) || 0,
+        totalItems: (folder.subfolderCount || 0) + (noteCountMap.get(folder.id) || 0),
+      }));
     }
-
-    // Add counts to folders
-    const foldersWithCounts = await Promise.all(
-      folders.map(async (folder) => {
-        const [subfolderCount, noteCount] = await Promise.all([
-          this.folderRepository.count({
-            where: { parentFolder: { id: folder.id }, owner: { id: userId } },
-          }),
-          this.noteRepository.count({
-            where: { folder: { id: folder.id }, owner: { id: userId } },
-          }),
-        ]);
-
-        return {
-          ...folder,
-          subfolderCount,
-          noteCount,
-          totalItems: subfolderCount + noteCount,
-        };
-      })
-    );
 
     return {
       folders: foldersWithCounts,
@@ -350,31 +349,28 @@ export class NoteService {
     });
   }
 
-  // Helper method to generate breadcrumb
+  // Helper method to generate breadcrumb - optimized with single recursive CTE query
   private async generateBreadcrumb(folderId: string): Promise<any[]> {
-    const breadcrumb = [];
-    let currentFolder = await this.folderRepository.findOne({
-      where: { id: folderId },
-      relations: ['parentFolder'],
-    });
+    // Use a recursive query to get all ancestors in one database call
+    const result = await this.folderRepository.query(`
+      WITH RECURSIVE folder_path AS (
+        SELECT id, name, type, "parentFolderId", 1 as depth
+        FROM folders
+        WHERE id = $1
+        
+        UNION ALL
+        
+        SELECT f.id, f.name, f.type, f."parentFolderId", fp.depth + 1
+        FROM folders f
+        INNER JOIN folder_path fp ON f.id = fp."parentFolderId"
+      )
+      SELECT id, name, type FROM folder_path ORDER BY depth DESC
+    `, [folderId]);
 
-    while (currentFolder) {
-      breadcrumb.unshift({
-        id: currentFolder.id,
-        name: currentFolder.name,
-        type: currentFolder.type,
-      });
-
-      if (currentFolder.parentFolder) {
-        currentFolder = await this.folderRepository.findOne({
-          where: { id: currentFolder.parentFolder.id },
-          relations: ['parentFolder'],
-        });
-      } else {
-        break;
-      }
-    }
-
-    return breadcrumb;
+    return result.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+    }));
   }
 }

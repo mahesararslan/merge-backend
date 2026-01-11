@@ -261,4 +261,24 @@ export class AuthService {
   async signOut(userId: string) {
     await this.userService.updateHashedRefreshToken(userId, null);
   }
+
+  async validateAccessToken(token: string) {
+    try {
+      const payload = await this.jwtService.verifyAsync(token);
+      const user = await this.userService.findOne(payload.sub);
+      
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      return {
+        valid: true,
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+  }
 }

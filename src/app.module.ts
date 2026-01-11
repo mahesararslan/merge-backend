@@ -18,6 +18,7 @@ import { FolderModule } from './folder/folder.module';
 import { FileModule } from './file/file.module';
 import { QuizModule } from './quiz/quiz.module';
 import { AssignmentModule } from './assignment/assignment.module';
+import { DirectMessageModule } from './direct-message/direct-message.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { AssignmentModule } from './assignment/assignment.module';
     FileModule,
     QuizModule,
     AssignmentModule,
+    DirectMessageModule,
   ],
   controllers: [AppController],
   providers: [

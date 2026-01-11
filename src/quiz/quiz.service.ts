@@ -647,7 +647,7 @@ export class QuizService {
   async getMyAttempt(quizId: string, userId: string) {
     const quiz = await this.quizRepository.findOne({
       where: { id: quizId },
-      relations: ['room'],
+      relations: ['room', 'questions'],
     });
 
     if (!quiz) {
@@ -666,7 +666,19 @@ export class QuizService {
       return null;
     }
 
-    return this.formatAttemptResponse(attempt);
+    // Include answer key (questions with correct answers)
+    const answerKey = quiz.questions?.map(q => ({
+      id: q.id,
+      text: q.text,
+      options: q.options,
+      correctOption: q.correctOption,
+      points: q.points,
+    })) || [];
+
+    return {
+      ...this.formatAttemptResponse(attempt),
+      answerKey,
+    };
   }
 
   private formatQuizResponse(quiz: Quiz, includeCorrectAnswers: boolean = false) {

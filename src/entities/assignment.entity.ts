@@ -25,8 +25,8 @@ export class Assignment {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  @Column('simple-array')
-  assignmentUrls: string[];
+  @Column('simple-json')
+  assignmentFiles: { name: string; url: string }[];
 
   @Column({ type: 'float' })
   totalScore: number; 

@@ -1,12 +1,15 @@
-import { IsString, IsArray, ArrayMinSize, ArrayMaxSize, IsOptional, MaxLength } from 'class-validator';
+import { IsString, IsArray, ArrayMinSize, ArrayMaxSize, IsOptional, MaxLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { FileItemDto } from './file-item.dto';
 
 export class UpdateAttemptDto {
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
   @ArrayMinSize(1)
   @ArrayMaxSize(3)
-  fileUrls?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => FileItemDto)
+  files?: FileItemDto[];
 
   @IsOptional()
   @IsString()

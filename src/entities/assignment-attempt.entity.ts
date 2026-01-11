@@ -18,8 +18,8 @@ export class AssignmentAttempt {
   @ManyToOne(() => Assignment, { nullable: false })
   assignment: Assignment;
 
-  @Column('simple-array')
-  fileUrls: string[];
+  @Column('simple-json')
+  files: { name: string; url: string }[];
 
   @Column({ type: 'text', nullable: true })
   note: string | null;

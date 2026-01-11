@@ -291,7 +291,7 @@ export class AssignmentService {
             id: attempt.id,
             submitAt: attempt.submitAt,
             score: attempt.score,
-            fileUrls: attempt.fileUrls,
+            files: attempt.files,
           } : null,
         };
       })
@@ -363,7 +363,7 @@ export class AssignmentService {
         id: attempt.id,
         submitAt: attempt.submitAt,
         score: attempt.score,
-        fileUrls: attempt.fileUrls,
+        files: attempt.files,
         note: attempt.note,
       } : null,
     };
@@ -435,7 +435,7 @@ export class AssignmentService {
           id: a.id,
           submitAt: a.submitAt,
           score: a.score,
-          fileUrls: a.fileUrls,
+          files: a.files,
           note: a.note,
           user: a.user ? {
             id: a.user.id,
@@ -537,7 +537,7 @@ export class AssignmentService {
     }
 
     const attempt = this.attemptRepository.create({
-      fileUrls: submitAttemptDto.fileUrls,
+      files: submitAttemptDto.files,
       note: submitAttemptDto.note || null,
       submitAt: new Date(),
     });
@@ -599,8 +599,8 @@ export class AssignmentService {
     }
 
     // Update fields if provided
-    if (updateAttemptDto.fileUrls) {
-      attempt.fileUrls = updateAttemptDto.fileUrls;
+    if (updateAttemptDto.files) {
+      attempt.files = updateAttemptDto.files;
     }
     if (updateAttemptDto.note !== undefined) {
       attempt.note = updateAttemptDto.note || null;
@@ -688,7 +688,7 @@ export class AssignmentService {
       id: assignment.id,
       title: assignment.title,
       description: assignment.description,
-      assignmentUrls: assignment.assignmentUrls,
+      assignmentFiles: assignment.assignmentFiles,
       totalScore: assignment.totalScore,
       startAt: assignment.startAt,
       endAt: assignment.endAt,
@@ -712,7 +712,7 @@ export class AssignmentService {
   private formatAttemptResponse(attempt: AssignmentAttempt) {
     return {
       id: attempt.id,
-      fileUrls: attempt.fileUrls,
+      files: attempt.files,
       submitAt: attempt.submitAt,
       score: attempt.score,
       user: attempt.user ? {

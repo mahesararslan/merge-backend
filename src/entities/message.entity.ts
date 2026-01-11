@@ -19,7 +19,7 @@ export class Message {
   @ManyToOne(() => User)
   recipient: User;
 
-  @Column()
+  @Column({ nullable: true })
   content: string;
 
   @Column({ nullable: true })

@@ -62,7 +62,11 @@ export class AssignmentController {
   @Get('student/:id')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
-  findOneForStudent(@Param('id') id: string, @Request() req) {
+  findOneForStudent(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.assignmentService.findOneForStudent(id, req.user.id);
   }
 

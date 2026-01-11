@@ -1,4 +1,6 @@
-import { IsString, IsOptional, IsBoolean, IsDateString, MaxLength, IsNumber, Min, IsArray, ArrayMaxSize } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsDateString, MaxLength, IsNumber, Min, IsArray, ArrayMaxSize, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { FileItemDto } from './file-item.dto';
 
 export class UpdateAssignmentDto {
   @IsOptional()
@@ -13,9 +15,10 @@ export class UpdateAssignmentDto {
 
   @IsOptional()
   @IsArray()
-  @IsString({ each: true })
   @ArrayMaxSize(3)
-  assignmentUrls?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => FileItemDto)
+  assignmentFiles?: FileItemDto[];
 
   @IsOptional()
   @IsNumber()

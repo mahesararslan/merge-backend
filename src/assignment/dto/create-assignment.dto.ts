@@ -1,4 +1,6 @@
-import { IsString, IsOptional, IsUUID, IsBoolean, IsDateString, MaxLength, IsNumber, Min, IsArray, ArrayMaxSize } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsBoolean, IsDateString, MaxLength, IsNumber, Min, IsArray, ArrayMaxSize, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { FileItemDto } from './file-item.dto';
 
 export class CreateAssignmentDto {
   @IsUUID('4')
@@ -14,9 +16,10 @@ export class CreateAssignmentDto {
   description?: string;
 
   @IsArray()
-  @IsString({ each: true })
   @ArrayMaxSize(3)
-  assignmentUrls: string[];
+  @ValidateNested({ each: true })
+  @Type(() => FileItemDto)
+  assignmentFiles: FileItemDto[];
 
   @IsNumber()
   @Min(0)

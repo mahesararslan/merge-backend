@@ -1,7 +1,10 @@
-import { IsOptional, IsIn } from 'class-validator';
+import { IsOptional, IsIn, IsUUID } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class QueryAttemptsDto {
+  @IsUUID('4')
+  roomId: string;
+
   @IsOptional()
   @Type(() => Number)
   page?: number = 1;

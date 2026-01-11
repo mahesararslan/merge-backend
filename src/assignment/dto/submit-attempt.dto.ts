@@ -1,4 +1,6 @@
-import { IsString, IsUUID, IsArray, ArrayMinSize, ArrayMaxSize, IsOptional, MaxLength } from 'class-validator';
+import { IsString, IsUUID, IsArray, ArrayMinSize, ArrayMaxSize, IsOptional, MaxLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { FileItemDto } from './file-item.dto';
 
 export class SubmitAttemptDto {
   @IsUUID('4')
@@ -8,10 +10,11 @@ export class SubmitAttemptDto {
   roomId: string;
 
   @IsArray()
-  @IsString({ each: true })
   @ArrayMinSize(1)
   @ArrayMaxSize(3)
-  fileUrls: string[];
+  @ValidateNested({ each: true })
+  @Type(() => FileItemDto)
+  files: FileItemDto[];
 
   @IsOptional()
   @IsString()

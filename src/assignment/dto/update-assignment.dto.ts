@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsDateString, MaxLength, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsDateString, MaxLength, IsNumber, Min, IsArray, ArrayMaxSize } from 'class-validator';
 
 export class UpdateAssignmentDto {
   @IsOptional()
@@ -12,8 +12,10 @@ export class UpdateAssignmentDto {
   description?: string;
 
   @IsOptional()
-  @IsString()
-  assignmentUrl?: string;
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(3)
+  assignmentUrls?: string[];
 
   @IsOptional()
   @IsNumber()

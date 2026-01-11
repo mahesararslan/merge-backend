@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID, IsBoolean, IsDateString, MaxLength, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsBoolean, IsDateString, MaxLength, IsNumber, Min, IsArray, ArrayMaxSize } from 'class-validator';
 
 export class CreateAssignmentDto {
   @IsUUID('4')
@@ -13,8 +13,10 @@ export class CreateAssignmentDto {
   @MaxLength(1000)
   description?: string;
 
-  @IsString()
-  assignmentUrl: string;
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(3)
+  assignmentUrls: string[];
 
   @IsNumber()
   @Min(0)

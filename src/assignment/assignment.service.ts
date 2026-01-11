@@ -346,20 +346,19 @@ export class AssignmentService {
       relations: ['user'],
     });
 
-    let submissionStatus: 'pending' | 'submitted' | 'graded' | 'missed';
+    // Determine assignmentStatus: pending, completed, missed
+    let assignmentStatus: 'pending' | 'completed' | 'missed';
     if (attempt) {
-      submissionStatus = attempt.score !== null ? 'graded' : 'submitted';
+      assignmentStatus = 'completed';
     } else if (assignment.isClosed || (assignment.endAt && new Date(assignment.endAt) < now && !assignment.isTurnInLateEnabled)) {
-      submissionStatus = 'missed';
+      assignmentStatus = 'missed';
     } else {
-      submissionStatus = 'pending';
+      assignmentStatus = 'pending';
     }
 
     return {
       ...this.formatAssignmentResponse(assignment),
-      submissionStatus,
-      submittedAt: attempt?.submitAt || null,
-      score: attempt?.score || null,
+      assignmentStatus,
       attempt: attempt ? {
         id: attempt.id,
         submitAt: attempt.submitAt,
@@ -689,7 +688,7 @@ export class AssignmentService {
       id: assignment.id,
       title: assignment.title,
       description: assignment.description,
-      assignmentUrl: assignment.assignmentUrl,
+      assignmentUrls: assignment.assignmentUrls,
       totalScore: assignment.totalScore,
       startAt: assignment.startAt,
       endAt: assignment.endAt,

@@ -165,7 +165,14 @@ export class AuthController {
   }
 
   private clearAuthCookies(res) {
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'none' as const,
+      domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
+    };
+
+    res.clearCookie('accessToken', cookieOptions);
+    res.clearCookie('refreshToken', cookieOptions);
   }
 }

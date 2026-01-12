@@ -358,7 +358,7 @@ export class AssignmentService {
 
     return {
       ...this.formatAssignmentResponse(assignment),
-      assignmentStatus,
+      submissionStatus: assignmentStatus,
       attempt: attempt ? {
         id: attempt.id,
         submitAt: attempt.submitAt,

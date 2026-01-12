@@ -144,8 +144,8 @@ export class AuthController {
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none' as const,
-      domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
+      sameSite: 'none' as const
+      // domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
     };
 
     console.log('Setting cookies with options:', cookieOptions);
@@ -168,8 +168,8 @@ export class AuthController {
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none' as const,
-      domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
+      sameSite: 'none' as const
+      // domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
     };
 
     res.clearCookie('accessToken', cookieOptions);

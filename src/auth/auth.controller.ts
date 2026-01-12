@@ -43,7 +43,7 @@ export class AuthController {
   async login(@Request() req, @Res({ passthrough: true }) res) {
     const result = await this.authService.signin(req.user.id, req.user.twoFactorEnabled, req.user.email);
     if ('token' in result && 'refreshToken' in result) {
-      this.setAuthCookies(res, result.token, result.refreshToken);
+      this.setAuthCookies(req, res, result.token, result.refreshToken);
     }
     return result;
   }
@@ -51,9 +51,9 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Get('verify')
-  async verifyEmail(@Query('token') token: string, @Res({ passthrough: true }) res) {
+  async verifyEmail(@Query('token') token: string, @Req() req, @Res({ passthrough: true }) res) {
     const result = await this.authService.verifyEmail(token);
-    this.setAuthCookies(res, result.token, result.refreshToken);
+    this.setAuthCookies(req, res, result.token, result.refreshToken);
     return result;
   }
 
@@ -61,9 +61,9 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('signin/otp')
-  async loginWithOTP(@Body() loginWithOTPDto: LoginWithOTPDto, @Res({ passthrough: true }) res) {
+  async loginWithOTP(@Body() loginWithOTPDto: LoginWithOTPDto, @Req() req, @Res({ passthrough: true }) res) {
     const result = await this.authService.loginWithOTP(loginWithOTPDto);
-    this.setAuthCookies(res, result.token, result.refreshToken);
+    this.setAuthCookies(req, res, result.token, result.refreshToken);
     return result;
   }
 
@@ -87,8 +87,8 @@ export class AuthController {
   @Post('refresh')
   async refreshToken(@Req() req, @Res({ passthrough: true }) res) {
     const result = await this.authService.refreshToken(req.user.id);
-    this.clearAuthCookies(res);
-    this.setAuthCookies(res, result.token, result.refreshToken);
+    this.clearAuthCookies(req, res);
+    this.setAuthCookies(req, res, result.token, result.refreshToken);
     return result;
   }
 
@@ -118,7 +118,7 @@ export class AuthController {
   @Get("/google/callback")
   async googleCallback(@Req() req, @Res() res) {
     const response = await this.authService.login(req.user.id);
-    this.setAuthCookies(res, response.token, response.refreshToken);
+    this.setAuthCookies(req, res, response.token, response.refreshToken);
     res.redirect(`${process.env.FRONTEND_URL}/callback?token=${response.token}&refreshToken=${response.refreshToken}`);
   }
 
@@ -126,7 +126,7 @@ export class AuthController {
   @Post('/logout')
   async SignOut(@Req() req, @Res({ passthrough: true }) res) {
     this.authService.signOut(req.user.id);
-    this.clearAuthCookies(res);
+    this.clearAuthCookies(req, res);
     return {
       success: true,
       message: 'Successfully Signed Out'
@@ -140,12 +140,15 @@ export class AuthController {
     return this.authService.validateAccessToken(body.token);
   }
 
-  private setAuthCookies(res, accessToken: string, refreshToken: string) {
+  private setAuthCookies(req, res, accessToken: string, refreshToken: string) {
+    const origin = req.headers.origin || '';
+    const isLocalhost = origin.includes('localhost');
+
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none' as const
-      // domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
+      sameSite: 'none' as const,
+      domain: isLocalhost ? 'localhost' : '.mergeedu.app'
     };
 
     console.log('Setting cookies with options:', cookieOptions);
@@ -164,12 +167,15 @@ export class AuthController {
     });
   }
 
-  private clearAuthCookies(res) {
+  private clearAuthCookies(req, res) {
+    const origin = req.headers.origin || '';
+    const isLocalhost = origin.includes('localhost');
+
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none' as const
-      // domain: process.env.NODE_ENV === 'production' ? ".mergeedu.app" : undefined
+      sameSite: 'none' as const,
+      domain: isLocalhost ? 'localhost' : '.mergeedu.app'
     };
 
     res.clearCookie('accessToken', cookieOptions);

@@ -37,7 +37,7 @@ export class DirectMessageService {
       throw new BadRequestException('Cannot send message to yourself');
     }
 
-    const message = new Message();
+    const message = new Message(); // @ts-ignore
     message.content = createMessageDto.content; // @ts-ignore
     message.attachmentURL = createMessageDto.attachmentURL ?? null; // @ts-ignore
     message.replyToId = createMessageDto.replyToId ?? null;

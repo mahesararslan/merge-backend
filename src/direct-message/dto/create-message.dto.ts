@@ -4,9 +4,10 @@ export class CreateMessageDto {
   @IsUUID('4')
   recipientId: string;
 
+  @IsOptional()
   @IsString()
   @MaxLength(5000)
-  content: string;
+  content?: string;
 
   @IsOptional()
   @IsString()

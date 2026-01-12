@@ -611,13 +611,11 @@ export class QuizService {
       }
     }
 
-    const percentageScore = totalPoints > 0 ? (score / totalPoints) * 100 : 0;
-
     const attempt = this.attemptRepository.create({
       quiz,
       user,
       answers: submitAttemptDto.answers,
-      score: percentageScore,
+      score: score,
       submittedAt: new Date(),
     });
 

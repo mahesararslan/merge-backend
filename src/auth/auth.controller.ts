@@ -158,7 +158,7 @@ export class AuthController {
 
     res.cookie('accessToken', accessToken, {
       ...cookieOptions,
-      maxAge: 0.3 * 60 * 1000,
+      maxAge: accessTokenExpiryMinutes * 60 * 1000,
     });
 
     res.cookie('refreshToken', refreshToken, {

@@ -37,13 +37,16 @@ export class DirectMessageService {
       throw new BadRequestException('Cannot send message to yourself');
     }
 
-    const message = new Message(); // @ts-ignore
+    const message = new Message();
+    const now = new Date(); // @ts-ignore
     message.content = createMessageDto.content; // @ts-ignore
     message.attachmentURL = createMessageDto.attachmentURL ?? null; // @ts-ignore
     message.replyToId = createMessageDto.replyToId ?? null;
     message.deletedForUserIds = [];
     message.sender = sender;
     message.recipient = recipient;
+    message.createdAt = now;
+    message.updatedAt = now;
 
     const saved = await this.messageRepository.save(message);
     return this.formatMessageResponse(saved, senderId);
@@ -162,6 +165,8 @@ export class DirectMessageService {
     if (updateMessageDto.attachmentURL !== undefined) {
       message.attachmentURL = updateMessageDto.attachmentURL;
     }
+
+    message.updatedAt = new Date();
 
     const updated = await this.messageRepository.save(message);
     return this.formatMessageResponse(updated, userId);

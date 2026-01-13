@@ -59,7 +59,11 @@ export class QuizController {
   @Get('student/:id')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
-  findOneForStudent(@Param('id') id: string, @Request() req) {
+  findOneForStudent(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.quizService.findOneForStudent(id, req.user.id);
   }
 
@@ -77,7 +81,11 @@ export class QuizController {
   @Get(':id')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
-  findOne(@Param('id') id: string, @Request() req) {
+  findOne(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.quizService.findOne(id, req.user.id);
   }
 
@@ -95,7 +103,11 @@ export class QuizController {
   @Delete(':id')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.ADMIN)
-  remove(@Param('id') id: string, @Request() req) {
+  remove(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.quizService.remove(id, req.user.id);
   }
 
@@ -109,14 +121,22 @@ export class QuizController {
   @Get(':id/attempts')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.ADMIN)
-  getAttempts(@Param('id') id: string, @Request() req) {
+  getAttempts(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.quizService.getAttempts(id, req.user.id);
   }
 
   @Get(':id/my-attempt')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
-  getMyAttempt(@Param('id') id: string, @Request() req) {
+  getMyAttempt(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.quizService.getMyAttempt(id, req.user.id);
   }
 }

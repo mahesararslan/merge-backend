@@ -1,8 +1,11 @@
-import { IsString, IsOptional, IsInt, Min, IsArray, ValidateNested, ArrayMinSize, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, IsArray, ValidateNested, ArrayMinSize, IsBoolean, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 import { QuizQuestionDto } from './create-quiz.dto';
 
 export class UpdateQuizDto {
+  @IsUUID('4')
+  roomId: string;
+
   @IsOptional()
   @IsString()
   title?: string;

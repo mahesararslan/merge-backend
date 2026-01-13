@@ -19,6 +19,7 @@ import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { UpdateAttemptDto } from './dto/update-attempt.dto';
 import { ScoreAttemptDto } from './dto/score-attempt.dto';
+import { BulkScoreAttemptsDto } from './dto/bulk-score-attempts.dto';
 import { QueryAttemptsDto } from './dto/query-attempts.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 
@@ -127,11 +128,24 @@ export class AssignmentController {
   }
 
   @Patch('attempts/:attemptId/score')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
   scoreAttempt(
     @Param('attemptId') attemptId: string,
     @Body() scoreAttemptDto: ScoreAttemptDto,
+    @Query('roomId') roomId: string,
     @Request() req,
   ) {
     return this.assignmentService.scoreAttempt(attemptId, scoreAttemptDto.score, req.user.id);
+  }
+
+  @Post('attempts/bulk-score')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  bulkScoreAttempts(
+    @Body() bulkScoreAttemptsDto: BulkScoreAttemptsDto,
+    @Request() req,
+  ) {
+    return this.assignmentService.bulkScoreAttempts(bulkScoreAttemptsDto, req.user.id);
   }
 }

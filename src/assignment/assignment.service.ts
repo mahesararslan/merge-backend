@@ -14,6 +14,7 @@ import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
 import { QueryAttemptsDto } from './dto/query-attempts.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { UpdateAttemptDto } from './dto/update-attempt.dto';
+import { BulkScoreAttemptsDto } from './dto/bulk-score-attempts.dto';
 
 @Injectable()
 export class AssignmentService {
@@ -659,6 +660,70 @@ export class AssignmentService {
     attempt.score = score;
     const updated = await this.attemptRepository.save(attempt);
     return this.formatAttemptResponse(updated);
+  }
+
+  async bulkScoreAttempts(bulkScoreAttemptsDto: BulkScoreAttemptsDto, userId: string) {
+    const { roomId, attempts } = bulkScoreAttemptsDto;
+
+    // Verify room access
+    const room = await this.roomRepository.findOne({
+      where: { id: roomId },
+      relations: ['admin'],
+    });
+
+    if (!room) {
+      throw new NotFoundException('Room not found');
+    }
+
+    // Only room admin can score
+    if (room.admin.id !== userId) {
+      throw new ForbiddenException('Only room admin can score attempts');
+    }
+
+    const results: any[] = [];
+    const errors: { attemptId: string; error: string }[] = [];
+
+    for (const attemptScore of attempts) {
+      try {
+        const attempt = await this.attemptRepository.findOne({
+          where: { id: attemptScore.attemptId },
+          relations: ['assignment', 'assignment.room', 'user'],
+        });
+
+        if (!attempt) {
+          errors.push({
+            attemptId: attemptScore.attemptId,
+            error: 'Attempt not found',
+          });
+          continue;
+        }
+
+        // Verify the attempt belongs to an assignment in this room
+        if (attempt.assignment.room.id !== roomId) {
+          errors.push({
+            attemptId: attemptScore.attemptId,
+            error: 'Attempt does not belong to this room',
+          });
+          continue;
+        }
+
+        attempt.score = attemptScore.score;
+        const updated = await this.attemptRepository.save(attempt);
+        results.push(this.formatAttemptResponse(updated));
+      } catch (error) {
+        errors.push({
+          attemptId: attemptScore.attemptId,
+          error: error.message,
+        });
+      }
+    }
+
+    return {
+      success: results.length,
+      failed: errors.length,
+      results,
+      errors,
+    };
   }
 
   private async checkRoomAccess(userId: string, roomId: string): Promise<boolean> {

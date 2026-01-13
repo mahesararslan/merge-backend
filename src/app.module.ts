@@ -19,6 +19,7 @@ import { FileModule } from './file/file.module';
 import { QuizModule } from './quiz/quiz.module';
 import { AssignmentModule } from './assignment/assignment.module';
 import { DirectMessageModule } from './direct-message/direct-message.module';
+import { GeneralChatModule } from './general-chat/general-chat.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { DirectMessageModule } from './direct-message/direct-message.module';
     QuizModule,
     AssignmentModule,
     DirectMessageModule,
+    GeneralChatModule,
   ],
   controllers: [AppController],
   providers: [

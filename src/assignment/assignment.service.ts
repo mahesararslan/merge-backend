@@ -644,6 +644,36 @@ export class AssignmentService {
     return this.formatAttemptResponse(attempt);
   }
 
+  async undoTurnIn(attemptId: string, userId: string) {
+    const attempt = await this.attemptRepository.findOne({
+      where: { id: attemptId },
+      relations: ['user', 'assignment', 'assignment.room'],
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('Attempt not found');
+    }
+
+    // Only the user who submitted can undo their submission
+    if (attempt.user.id !== userId) {
+      throw new ForbiddenException('You can only delete your own submission');
+    }
+
+    // Cannot delete if already scored
+    if (attempt.score !== null) {
+      throw new BadRequestException('Cannot undo a submission that has already been scored');
+    }
+
+    // Check if assignment is closed
+    const assignment = attempt.assignment;
+    if (assignment.isClosed) {
+      throw new BadRequestException('Cannot undo submission as the assignment has been closed by the instructor');
+    }
+
+    await this.attemptRepository.remove(attempt);
+    return { message: 'Submission removed successfully' };
+  }
+
   async scoreAttempt(attemptId: string, score: number, userId: string) {
     const attempt = await this.attemptRepository.findOne({
       where: { id: attemptId },

@@ -145,6 +145,17 @@ export class AssignmentController {
     return this.assignmentService.getMyAttempt(id, req.user.id);
   }
 
+  @Delete('attempts/:attemptId/undo-turnin')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  undoTurnIn(
+    @Param('attemptId') attemptId: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
+    return this.assignmentService.undoTurnIn(attemptId, req.user.id);
+  }
+
   // guard not required because update can only happen by the attempt owner where guard logic was already applied
   @Patch('attempts/:attemptId')
   updateAttempt(

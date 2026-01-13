@@ -13,6 +13,8 @@ import { QueryQuizDto } from './dto/query-quiz.dto';
 import { QueryStudentQuizDto } from './dto/query-student-quiz.dto';
 import { QueryInstructorQuizDto } from './dto/query-instructor-quiz.dto';
 import { QueryQuizAttemptsDto } from './dto/query-quiz-attempts.dto';
+import { QuizSubmissionStatus } from './enums/quiz-submission-status.enum';
+import { InstructorQuizStatus } from './enums/instructor-quiz-status.enum';
 
 @Injectable()
 export class QuizService {
@@ -187,13 +189,13 @@ export class QuizService {
           where: { quiz: { id: quiz.id }, user: { id: userId } },
         });
 
-        let status: 'pending' | 'submitted' | 'graded' | 'missed';
+        let status: QuizSubmissionStatus;
         if (attempt) {
-          status = attempt.score !== null ? 'graded' : 'submitted';
+          status = attempt.score !== null ? QuizSubmissionStatus.GRADED : QuizSubmissionStatus.SUBMITTED;
         } else if (quiz.isClosed || (quiz.deadline && new Date(quiz.deadline) < now)) {
-          status = 'missed';
+          status = QuizSubmissionStatus.MISSED;
         } else {
-          status = 'pending';
+          status = QuizSubmissionStatus.PENDING;
         }
 
         return {
@@ -282,17 +284,17 @@ export class QuizService {
           : null;
 
         // Determine assignment status for instructor
-        let status: 'open' | 'closed' | 'needs_grading' | 'all_graded' | 'ended';
+        let status: InstructorQuizStatus;
         if (quiz.isClosed) {
-          status = 'closed';
+          status = InstructorQuizStatus.CLOSED;
         } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
-          status = 'ended';
+          status = InstructorQuizStatus.ENDED;
         } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
-          status = 'all_graded';
+          status = InstructorQuizStatus.ALL_GRADED;
         } else if (ungradedAttempts > 0) {
-          status = 'needs_grading';
+          status = InstructorQuizStatus.NEEDS_GRADING;
         } else {
-          status = 'open';
+          status = InstructorQuizStatus.OPEN;
         }
 
         return {
@@ -346,13 +348,13 @@ export class QuizService {
       relations: ['user'],
     });
 
-    let submissionStatus: 'pending' | 'submitted' | 'graded' | 'missed';
+    let submissionStatus: QuizSubmissionStatus;
     if (attempt) {
-      submissionStatus = attempt.score !== null ? 'graded' : 'submitted';
+      submissionStatus = attempt.score !== null ? QuizSubmissionStatus.GRADED : QuizSubmissionStatus.SUBMITTED;
     } else if (quiz.isClosed || (quiz.deadline && new Date(quiz.deadline) < now)) {
-      submissionStatus = 'missed';
+      submissionStatus = QuizSubmissionStatus.MISSED;
     } else {
-      submissionStatus = 'pending';
+      submissionStatus = QuizSubmissionStatus.PENDING;
     }
 
     return {
@@ -396,13 +398,13 @@ export class QuizService {
     // If no attempts, return quiz with null attempts
     if (totalAttempts === 0) {
       const now = new Date();
-      let status: 'open' | 'closed' | 'ended';
+      let status: InstructorQuizStatus;
       if (quiz.isClosed) {
-        status = 'closed';
+        status = InstructorQuizStatus.CLOSED;
       } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
-        status = 'ended';
+        status = InstructorQuizStatus.ENDED;
       } else {
-        status = 'open';
+        status = InstructorQuizStatus.OPEN;
       }
 
       return {
@@ -440,17 +442,17 @@ export class QuizService {
 
     // Determine quiz status
     const now = new Date();
-    let status: 'open' | 'closed' | 'needs_grading' | 'all_graded' | 'ended';
+    let status: InstructorQuizStatus;
     if (quiz.isClosed) {
-      status = 'closed';
+      status = InstructorQuizStatus.CLOSED;
     } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
-      status = 'ended';
+      status = InstructorQuizStatus.ENDED;
     } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
-      status = 'all_graded';
+      status = InstructorQuizStatus.ALL_GRADED;
     } else if (ungradedAttempts > 0) {
-      status = 'needs_grading';
+      status = InstructorQuizStatus.NEEDS_GRADING;
     } else {
-      status = 'open';
+      status = InstructorQuizStatus.OPEN;
     }
 
     return {

@@ -83,21 +83,36 @@ export class AssignmentController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @Request() req) {
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  findOne(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.assignmentService.findOne(id, req.user.id);
   }
 
   @Patch(':id')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
   update(
     @Param('id') id: string,
     @Body() updateAssignmentDto: UpdateAssignmentDto,
+    @Query('roomId') roomId: string,
     @Request() req,
   ) {
     return this.assignmentService.update(id, updateAssignmentDto, req.user.id);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @Request() req) {
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  remove(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.assignmentService.remove(id, req.user.id);
   }
 
@@ -109,15 +124,28 @@ export class AssignmentController {
   }
 
   @Get(':id/attempts')
-  getAttempts(@Param('id') id: string, @Request() req) {
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  getAttempts(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.assignmentService.getAttempts(id, req.user.id);
   }
 
   @Get(':id/my-attempt')
-  getMyAttempt(@Param('id') id: string, @Request() req) {
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  getMyAttempt(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
     return this.assignmentService.getMyAttempt(id, req.user.id);
   }
 
+  // guard not required because update can only happen by the attempt owner where guard logic was already applied
   @Patch('attempts/:attemptId')
   updateAttempt(
     @Param('attemptId') attemptId: string,

@@ -15,6 +15,8 @@ import { QueryAttemptsDto } from './dto/query-attempts.dto';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { UpdateAttemptDto } from './dto/update-attempt.dto';
 import { BulkScoreAttemptsDto } from './dto/bulk-score-attempts.dto';
+import { SubmissionStatus } from './enums/assignment-submission-status.enum';
+import { InstructorAssignmentStatus } from './enums/instructor-assignment-status.enum';
 
 @Injectable()
 export class AssignmentService {
@@ -167,13 +169,13 @@ export class AssignmentService {
         });
         
         // Determine assignment status for instructor
-        let status: 'closed' | 'needs_grading' | 'graded';
+        let status: InstructorAssignmentStatus;
         if (assignment.isClosed) {
-          status = 'closed';
+          status = InstructorAssignmentStatus.CLOSED;
         } else if (totalAttempts > 0 && totalAttempts > gradedAttempts) {
-          status = 'needs_grading';
+          status = InstructorAssignmentStatus.NEEDS_GRADING;
         } else {
-          status = 'graded';
+          status = InstructorAssignmentStatus.GRADED;
         }
 
         return {
@@ -274,13 +276,13 @@ export class AssignmentService {
           where: { assignment: { id: assignment.id }, user: { id: userId } },
         });
         
-        let status: 'pending' | 'submitted' | 'graded' | 'missed';
+        let status: SubmissionStatus;
         if (attempt) {
-          status = attempt.score !== null ? 'graded' : 'submitted';
+          status = attempt.score !== null ? SubmissionStatus.GRADED : SubmissionStatus.SUBMITTED;
         } else if (assignment.isClosed || (assignment.endAt && new Date(assignment.endAt) < now && !assignment.isTurnInLateEnabled)) {
-          status = 'missed';
+          status = SubmissionStatus.MISSED;
         } else {
-          status = 'pending';
+          status = SubmissionStatus.PENDING;
         }
 
         return {
@@ -347,14 +349,14 @@ export class AssignmentService {
       relations: ['user'],
     });
 
-    // Determine assignmentStatus: pending, completed, missed
-    let assignmentStatus: 'pending' | 'completed' | 'missed';
+    // Determine assignmentStatus
+    let assignmentStatus: SubmissionStatus;
     if (attempt) {
-      assignmentStatus = 'completed';
+      assignmentStatus = attempt.score !== null ? SubmissionStatus.GRADED : SubmissionStatus.SUBMITTED;
     } else if (assignment.isClosed || (assignment.endAt && new Date(assignment.endAt) < now && !assignment.isTurnInLateEnabled)) {
-      assignmentStatus = 'missed';
+      assignmentStatus = SubmissionStatus.MISSED;
     } else {
-      assignmentStatus = 'pending';
+      assignmentStatus = SubmissionStatus.PENDING;
     }
 
     return {
@@ -416,13 +418,13 @@ export class AssignmentService {
     });
 
     // Determine assignment status
-    let status: 'closed' | 'needs_grading' | 'graded';
+    let status: InstructorAssignmentStatus;
     if (assignment.isClosed) {
-      status = 'closed';
+      status = InstructorAssignmentStatus.CLOSED;
     } else if (totalAttempts > 0 && totalAttempts > gradedAttempts) {
-      status = 'needs_grading';
+      status = InstructorAssignmentStatus.NEEDS_GRADING;
     } else {
-      status = 'graded';
+      status = InstructorAssignmentStatus.GRADED;
     }
 
     return {

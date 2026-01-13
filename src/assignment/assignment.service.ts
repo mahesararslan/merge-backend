@@ -373,7 +373,7 @@ export class AssignmentService {
   }
 
   async findOneForInstructor(id: string, queryDto: QueryAttemptsDto, userId: string) {
-    const { page = 1, limit = 20, sortBy = 'submitAt', sortOrder = 'DESC', filter = 'all' } = queryDto;
+    const { page = 1, limit = 20, sortBy = 'submitAt', sortOrder = 'DESC', filter = 'all', subFilters } = queryDto;
     const skip = (page - 1) * limit;
 
     const assignment = await this.assignmentRepository.findOne({
@@ -394,6 +394,7 @@ export class AssignmentService {
     let queryBuilder = this.attemptRepository
       .createQueryBuilder('attempt')
       .leftJoinAndSelect('attempt.user', 'user')
+      .leftJoinAndSelect('attempt.assignment', 'assignment')
       .where('attempt.assignment.id = :assignmentId', { assignmentId: id });
 
     // Apply filter
@@ -401,6 +402,18 @@ export class AssignmentService {
       queryBuilder.andWhere('attempt.score IS NOT NULL');
     } else if (filter === 'ungraded') {
       queryBuilder.andWhere('attempt.score IS NULL');
+      
+      // Apply subFilters only when filter is ungraded
+      if (subFilters === 'late') {
+        // Late submissions: submitted after endAt (if endAt exists)
+        queryBuilder.andWhere('assignment.endAt IS NOT NULL');
+        queryBuilder.andWhere('attempt.submitAt > assignment.endAt');
+      } else if (subFilters === 'onTime') {
+        // On time submissions: submitted before/on endAt OR no endAt
+        queryBuilder.andWhere(
+          '(assignment.endAt IS NULL OR attempt.submitAt <= assignment.endAt)'
+        );
+      }
     }
 
     const [attempts, total] = await queryBuilder
@@ -427,31 +440,42 @@ export class AssignmentService {
       status = InstructorAssignmentStatus.GRADED;
     }
 
+    const attemptsData = {
+      data: attempts.map(a => ({
+        id: a.id,
+        submitAt: a.submitAt,
+        score: a.score,
+        files: a.files,
+        note: a.note,
+        isLate: assignment.endAt && new Date(a.submitAt) > new Date(assignment.endAt),
+        user: a.user ? {
+          id: a.user.id,
+          firstName: a.user.firstName,
+          lastName: a.user.lastName,
+          email: a.user.email,
+          image: a.user.image,
+        } : null,
+      })),
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    };
+
+    // Return assignment details only on page 1
+    if (page === 1) {
+      return {
+        ...this.formatAssignmentResponse(assignment),
+        status,
+        totalAttempts,
+        gradedAttempts,
+        ungradedAttempts: totalAttempts - gradedAttempts,
+        attempts: attemptsData,
+      };
+    }
+
+    // For page > 1, return only attempts
     return {
-      ...this.formatAssignmentResponse(assignment),
-      status,
-      totalAttempts,
-      gradedAttempts,
-      ungradedAttempts: totalAttempts - gradedAttempts,
-      attempts: {
-        data: attempts.map(a => ({
-          id: a.id,
-          submitAt: a.submitAt,
-          score: a.score,
-          files: a.files,
-          note: a.note,
-          user: a.user ? {
-            id: a.user.id,
-            firstName: a.user.firstName,
-            lastName: a.user.lastName,
-            email: a.user.email,
-            image: a.user.image,
-          } : null,
-        })),
-        total,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-      },
+      attempts: attemptsData,
     };
   }
 

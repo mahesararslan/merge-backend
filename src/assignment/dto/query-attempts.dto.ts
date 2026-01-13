@@ -25,4 +25,8 @@ export class QueryAttemptsDto {
   @IsOptional()
   @IsIn(['all', 'graded', 'ungraded'])
   filter?: 'all' | 'graded' | 'ungraded' = 'all';
+
+  @IsOptional()
+  @IsIn(['late', 'onTime'])
+  subFilters?: 'late' | 'onTime';
 }

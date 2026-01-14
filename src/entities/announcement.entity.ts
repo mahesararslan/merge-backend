@@ -4,6 +4,7 @@ import {
   Column,
   ManyToOne,
   CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
@@ -31,6 +32,12 @@ export class Announcement {
   @Column({ default: false })
   isPublished: boolean;
 
+  @Column({ default: false })
+  isEdited: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  editedAt: Date;
 }

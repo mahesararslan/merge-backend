@@ -27,21 +27,21 @@ export class GeneralChatController {
 
   @Post()
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   create(@Body() createMessageDto: CreateGeneralChatMessageDto, @Request() req) {
     return this.generalChatService.create(createMessageDto, req.user.id);
   }
 
   @Get()
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   findAll(@Query() queryDto: QueryGeneralChatMessagesDto, @Request() req) {
     return this.generalChatService.findAll(queryDto, req.user.id);
   }
 
   @Get(':id')
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('roomId', ParseUUIDPipe) roomId: string,
@@ -52,7 +52,7 @@ export class GeneralChatController {
 
   @Patch(':id')
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('roomId', ParseUUIDPipe) roomId: string,
@@ -64,7 +64,7 @@ export class GeneralChatController {
 
   @Delete(':id/for-me')
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   deleteForMe(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('roomId', ParseUUIDPipe) roomId: string,
@@ -75,7 +75,7 @@ export class GeneralChatController {
 
   @Delete(':id/for-everyone')
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   deleteForEveryone(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('roomId', ParseUUIDPipe) roomId: string,

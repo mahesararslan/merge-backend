@@ -21,11 +21,12 @@ import { UserModule } from 'src/user/user.module';
 import { TagModule } from 'src/tag/tag.module';
 import { RoomModule } from 'src/room/room.module';
 import { UserAuth } from 'src/entities/user-auth.entity';
+import { FcmToken } from 'src/entities/fcm-token.entity';
 import { RolesGuard } from './guards/roles/roles.guard';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, UserAuth]),
+    TypeOrmModule.forFeature([User, UserAuth, FcmToken]),
     JwtModule.registerAsync(jwtConfig.asProvider()),
     ConfigModule.forFeature(jwtConfig),
     ConfigModule.forFeature(refreshJwtConfig),

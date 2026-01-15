@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { StoreFcmTokenDto } from './dto/store-fcm-token.dto';
 import { User } from 'src/entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
@@ -21,6 +22,7 @@ import { Tag } from 'src/entities/tag.entity';
 import { RoomService } from 'src/room/room.service';
 import { Room } from 'src/entities/room.entity';
 import { UserAuth } from 'src/entities/user-auth.entity';
+import { FcmToken } from 'src/entities/fcm-token.entity';
 
 @Injectable()
 export class UserService {
@@ -29,6 +31,8 @@ export class UserService {
     private userRepository: Repository<User>,
     @InjectRepository(UserAuth)
     private userAuthRepository: Repository<UserAuth>,
+    @InjectRepository(FcmToken)
+    private fcmTokenRepository: Repository<FcmToken>,
     @Inject('CACHE_MANAGER') private cacheManager: Cache,
     private tagService: TagService,
     private roomService: RoomService,
@@ -406,6 +410,47 @@ export class UserService {
     return {
       id: tag.id,
       name: tag.name,
+    };
+  }
+
+  async storeFcmToken(userId: string, storeFcmTokenDto: StoreFcmTokenDto): Promise<any> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Check if token already exists for this user
+    let fcmToken = await this.fcmTokenRepository.findOne({
+      where: {
+        user: { id: userId },
+        token: storeFcmTokenDto.token,
+      },
+    });
+
+    if (fcmToken) {
+      // Update existing token
+      fcmToken.lastUsedAt = new Date();
+      fcmToken.deviceType = storeFcmTokenDto.deviceType || fcmToken.deviceType;
+      fcmToken.deviceId = storeFcmTokenDto.deviceId || fcmToken.deviceId;
+      await this.fcmTokenRepository.save(fcmToken);
+    } else {
+      // Create new token
+      fcmToken = this.fcmTokenRepository.create({
+        user,
+        token: storeFcmTokenDto.token,
+        deviceType: storeFcmTokenDto.deviceType,
+        deviceId: storeFcmTokenDto.deviceId,
+        lastUsedAt: new Date(),
+      });
+      await this.fcmTokenRepository.save(fcmToken);
+    }
+
+    return {
+      message: 'FCM token stored successfully',
+      tokenId: fcmToken.id,
     };
   }
 }

@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { StoreFcmTokenDto } from './dto/store-fcm-token.dto';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { UserRole } from 'src/entities/user.entity';
 import { UpdatePasswordDto } from './dto/update-password.dto';
@@ -44,6 +45,11 @@ export class UserController {
   @Patch('/change-password')
   changePassword(@Req() req, @Body() updatePasswordDto: UpdatePasswordDto) {
     return this.userService.updatePassword(req.user.id, updatePasswordDto);
+  }
+
+  @Post('/fcm-token')
+  storeFcmToken(@Req() req, @Body() storeFcmTokenDto: StoreFcmTokenDto) {
+    return this.userService.storeFcmToken(req.user.id, storeFcmTokenDto);
   }
 
   @Get('rooms')

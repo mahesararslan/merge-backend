@@ -20,6 +20,10 @@ import { QuizModule } from './quiz/quiz.module';
 import { AssignmentModule } from './assignment/assignment.module';
 import { DirectMessageModule } from './direct-message/direct-message.module';
 import { GeneralChatModule } from './general-chat/general-chat.module';
+import { AnnouncementModule } from './announcement/announcement.module';
+import { NotificationModule } from './notification/notification.module';
+import { FirebaseModule } from './firebase/firebase.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -59,6 +63,10 @@ import { GeneralChatModule } from './general-chat/general-chat.module';
     AssignmentModule,
     DirectMessageModule,
     GeneralChatModule,
+    FirebaseModule,
+    QueueModule,
+    AnnouncementModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [

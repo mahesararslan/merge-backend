@@ -12,7 +12,7 @@ import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { StoreFcmTokenDto } from './dto/store-fcm-token.dto';
-import { User } from 'src/entities/user.entity';
+import { NotificationStatus, User } from 'src/entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { UpdatePasswordDto } from './dto/update-password.dto';
@@ -393,6 +393,7 @@ export class UserService {
       role: user.role,
       image: user.image,
       new_user: user.new_user,
+      NotificationStatus: user.notificationStatus,
       googleAccount: user.googleAccount,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -422,35 +423,61 @@ export class UserService {
       throw new NotFoundException('User not found');
     }
 
-    // Check if token already exists for this user
-    let fcmToken = await this.fcmTokenRepository.findOne({
-      where: {
-        user: { id: userId },
-        token: storeFcmTokenDto.token,
-      },
-    });
+    // Update notification status
+    user.notificationStatus = storeFcmTokenDto.notificationStatus;
+    await this.userRepository.save(user);
 
-    if (fcmToken) {
-      // Update existing token
-      fcmToken.lastUsedAt = new Date();
-      fcmToken.deviceType = storeFcmTokenDto.deviceType || fcmToken.deviceType;
-      fcmToken.deviceId = storeFcmTokenDto.deviceId || fcmToken.deviceId;
-      await this.fcmTokenRepository.save(fcmToken);
-    } else {
-      // Create new token
-      fcmToken = this.fcmTokenRepository.create({
-        user,
-        token: storeFcmTokenDto.token,
-        deviceType: storeFcmTokenDto.deviceType,
-        deviceId: storeFcmTokenDto.deviceId,
-        lastUsedAt: new Date(),
-      });
-      await this.fcmTokenRepository.save(fcmToken);
+    // If user denied notifications, just update status and return
+    if (storeFcmTokenDto.notificationStatus === NotificationStatus.DENIED) {
+      return {
+        message: 'Notification status updated to denied',
+        notificationStatus: user.notificationStatus,
+      };
     }
 
+    // If user allowed notifications, store the FCM token
+    if (storeFcmTokenDto.notificationStatus === NotificationStatus.ALLOWED) {
+      if (!storeFcmTokenDto.token) {
+        throw new BadRequestException('FCM token is required when notifications are allowed');
+      }
+
+      // Check if token already exists for this user
+      let fcmToken = await this.fcmTokenRepository.findOne({
+        where: {
+          user: { id: userId },
+          token: storeFcmTokenDto.token,
+        },
+      });
+
+      if (fcmToken) {
+        // Update existing token
+        fcmToken.lastUsedAt = new Date();
+        fcmToken.deviceType = storeFcmTokenDto.deviceType || fcmToken.deviceType;
+        fcmToken.deviceId = storeFcmTokenDto.deviceId || fcmToken.deviceId;
+        await this.fcmTokenRepository.save(fcmToken);
+      } else {
+        // Create new token
+        fcmToken = this.fcmTokenRepository.create({
+          user,
+          token: storeFcmTokenDto.token,
+          deviceType: storeFcmTokenDto.deviceType,
+          deviceId: storeFcmTokenDto.deviceId,
+          lastUsedAt: new Date(),
+        });
+        await this.fcmTokenRepository.save(fcmToken);
+      }
+
+      return {
+        message: 'Notification status updated to allowed and FCM token stored successfully',
+        notificationStatus: user.notificationStatus,
+        tokenId: fcmToken.id,
+      };
+    }
+
+    // For DEFAULT status, just update and return
     return {
-      message: 'FCM token stored successfully',
-      tokenId: fcmToken.id,
+      message: 'Notification status updated',
+      notificationStatus: user.notificationStatus,
     };
   }
 }

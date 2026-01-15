@@ -16,6 +16,12 @@ export enum UserRole {
   STUDENT = 'student',
 }
 
+export enum NotificationStatus {
+  ALLOWED = 'allowed',
+  DENIED = 'denied',
+  DEFAULT = 'default',
+}
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -56,6 +62,13 @@ export class User {
 
   @Column({ default: false })
   googleAccount: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.DEFAULT,
+  })
+  notificationStatus: NotificationStatus;
 
   @OneToOne(() => UserAuth, (auth) => auth.user, { cascade: true, eager: true })
   auth: UserAuth;

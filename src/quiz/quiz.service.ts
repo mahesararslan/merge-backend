@@ -275,24 +275,16 @@ export class QuizService {
           select: ['score'],
         });
 
-        // Count graded attempts (those with a score)
-        const gradedAttempts = attempts.filter(a => a.score !== null).length;
-        const ungradedAttempts = totalAttempts - gradedAttempts;
-
         const averageScore = attempts.length > 0
           ? attempts.reduce((sum, a) => sum + (a.score || 0), 0) / attempts.length
           : null;
 
-        // Determine assignment status for instructor
+        // Determine quiz status for instructor
         let status: InstructorQuizStatus;
         if (quiz.isClosed) {
           status = InstructorQuizStatus.CLOSED;
         } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
           status = InstructorQuizStatus.ENDED;
-        } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
-          status = InstructorQuizStatus.ALL_GRADED;
-        } else if (ungradedAttempts > 0) {
-          status = InstructorQuizStatus.NEEDS_GRADING;
         } else {
           status = InstructorQuizStatus.OPEN;
         }
@@ -301,8 +293,6 @@ export class QuizService {
           ...this.formatQuizResponse(quiz, false),
           status,
           totalAttempts,
-          gradedAttempts,
-          ungradedAttempts,
           stats: {
             totalAttempts,
             averageScore: averageScore !== null ? Math.round(averageScore * 100) / 100 : null,
@@ -411,8 +401,6 @@ export class QuizService {
         ...this.formatQuizResponse(quiz, true),
         status,
         totalAttempts: 0,
-        gradedAttempts: 0,
-        ungradedAttempts: 0,
         averageScore: null,
         attempts: null,
       };
@@ -428,58 +416,60 @@ export class QuizService {
       .take(limit)
       .getManyAndCount();
 
-    // Get stats
-    const allAttempts = await this.attemptRepository.find({
-      where: { quiz: { id: quiz.id } },
-      select: ['score'],
-    });
+    const attemptsData = {
+      data: attempts.map(a => ({
+        id: a.id,
+        submittedAt: a.submittedAt,
+        score: a.score,
+        answers: a.answers,
+        user: a.user ? {
+          id: a.user.id,
+          firstName: a.user.firstName,
+          lastName: a.user.lastName,
+          email: a.user.email,
+          image: a.user.image,
+        } : null,
+      })),
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    };
 
-    const gradedAttempts = allAttempts.filter(a => a.score !== null).length;
-    const ungradedAttempts = totalAttempts - gradedAttempts;
-    const averageScore = allAttempts.length > 0
-      ? allAttempts.reduce((sum, a) => sum + (a.score || 0), 0) / allAttempts.length
-      : null;
+    // Return quiz details only on page 1
+    if (page === 1) {
+      // Get stats
+      const allAttempts = await this.attemptRepository.find({
+        where: { quiz: { id: quiz.id } },
+        select: ['score'],
+      });
 
-    // Determine quiz status
-    const now = new Date();
-    let status: InstructorQuizStatus;
-    if (quiz.isClosed) {
-      status = InstructorQuizStatus.CLOSED;
-    } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
-      status = InstructorQuizStatus.ENDED;
-    } else if (totalAttempts > 0 && totalAttempts === gradedAttempts) {
-      status = InstructorQuizStatus.ALL_GRADED;
-    } else if (ungradedAttempts > 0) {
-      status = InstructorQuizStatus.NEEDS_GRADING;
-    } else {
-      status = InstructorQuizStatus.OPEN;
+      const averageScore = allAttempts.length > 0
+        ? allAttempts.reduce((sum, a) => sum + (a.score || 0), 0) / allAttempts.length
+        : null;
+
+      // Determine quiz status
+      const now = new Date();
+      let status: InstructorQuizStatus;
+      if (quiz.isClosed) {
+        status = InstructorQuizStatus.CLOSED;
+      } else if (quiz.deadline && new Date(quiz.deadline) <= now) {
+        status = InstructorQuizStatus.ENDED;
+      } else {
+        status = InstructorQuizStatus.OPEN;
+      }
+
+      return {
+        ...this.formatQuizResponse(quiz, true),
+        status,
+        totalAttempts,
+        averageScore: averageScore !== null ? Math.round(averageScore * 100) / 100 : null,
+        attempts: attemptsData,
+      };
     }
 
+    // For page > 1, return only attempts
     return {
-      ...this.formatQuizResponse(quiz, true),
-      status,
-      totalAttempts,
-      gradedAttempts,
-      ungradedAttempts,
-      averageScore: averageScore !== null ? Math.round(averageScore * 100) / 100 : null,
-      attempts: {
-        data: attempts.map(a => ({
-          id: a.id,
-          submittedAt: a.submittedAt,
-          score: a.score,
-          answers: a.answers,
-          user: a.user ? {
-            id: a.user.id,
-            firstName: a.user.firstName,
-            lastName: a.user.lastName,
-            email: a.user.email,
-            image: a.user.image,
-          } : null,
-        })),
-        total,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-      },
+      attempts: attemptsData,
     };
   }
 

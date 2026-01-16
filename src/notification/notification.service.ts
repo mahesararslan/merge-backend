@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
+import { firstValueFrom } from 'rxjs';
 import { Notification } from '../entities/notification.entity';
 import { FcmToken } from '../entities/fcm-token.entity';
 import { Announcement } from '../entities/announcement.entity';
@@ -19,6 +22,8 @@ export class NotificationService {
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
     private firebaseService: FirebaseService,
+    private httpService: HttpService,
+    private configService: ConfigService,
   ) {}
 
   async createAnnouncementNotifications(announcement: Announcement): Promise<void> {
@@ -61,6 +66,32 @@ export class NotificationService {
       // Save all notifications
       await this.notificationRepository.save(notifications);
       this.logger.log(`Created ${notifications.length} notifications for announcement ${announcement.id}`);
+
+      // Send live notifications to WebSocket server for online users
+      const wsServerUrl = this.configService.get('COMMUNICATIONS_SERVER_URL');
+      if (wsServerUrl) {
+        for (const notification of notifications) {
+          try {
+            await firstValueFrom(
+              this.httpService.post(`${wsServerUrl}/internal/notification`, {
+                userId: notification.user.id,
+                notification: {
+                  id: notification.id,
+                  content: notification.content,
+                  isRead: notification.isRead,
+                  metadata: notification.metadata,
+                  expiresAt: notification.expiresAt,
+                  createdAt: notification.createdAt,
+                },
+              }),
+            );
+          } catch (error) {
+            // Log but don't throw - WebSocket notification is not critical
+            this.logger.error(`Failed to send WebSocket notification to user ${notification.user.id}: ${error.message}`);
+          }
+        }
+        this.logger.log(`Sent WebSocket notifications to ${notifications.length} users`);
+      }
 
       // Send FCM notifications asynchronously
       this.sendFcmNotifications(

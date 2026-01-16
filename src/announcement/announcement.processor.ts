@@ -30,7 +30,7 @@ export class AnnouncementProcessor {
     try {
       const announcement = await this.announcementRepository.findOne({
         where: { id: announcementId },
-        relations: ['room', 'author'],
+        relations: ['room', 'room.admin', 'author'],
       });
 
       if (!announcement) {

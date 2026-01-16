@@ -31,7 +31,12 @@ export class AnnouncementService {
     private notificationService: NotificationService,
     private httpService: HttpService,
     private configService: ConfigService,
-  ) {}
+  ) {
+    // Test queue connection on startup
+    this.announcementQueue.isReady().catch((error) => {
+      this.logger.error(`Queue not ready: ${error.message}`);
+    });
+  }
 
   async create(createAnnouncementDto: CreateAnnouncementDto, userId: string): Promise<any> {
     const room = await this.roomRepository.findOne({
@@ -71,6 +76,13 @@ export class AnnouncementService {
   }
 
   async schedule(scheduleAnnouncementDto: ScheduleAnnouncementDto, userId: string): Promise<any> {
+    const scheduledDate = new Date(scheduleAnnouncementDto.scheduledAt);
+    
+    if (scheduledDate <= new Date()) {
+      throw new BadRequestException('Scheduled time must be in the future');
+    }
+
+    // Load room and user entities (same pattern as create method)
     const room = await this.roomRepository.findOne({
       where: { id: scheduleAnnouncementDto.roomId },
       relations: ['admin'],
@@ -88,11 +100,7 @@ export class AnnouncementService {
       throw new NotFoundException('User not found');
     }
 
-    const scheduledDate = new Date(scheduleAnnouncementDto.scheduledAt);
-    
-    if (scheduledDate <= new Date()) {
-      throw new BadRequestException('Scheduled time must be in the future');
-    }
+    this.logger.log(`Scheduling announcement for: ${scheduledDate.toISOString()}`);
 
     const announcement = this.announcementRepository.create({
       title: scheduleAnnouncementDto.title,
@@ -104,16 +112,30 @@ export class AnnouncementService {
     });
 
     const saved = await this.announcementRepository.save(announcement);
+    this.logger.log(`Scheduled announcement saved: ${saved.id}`);
 
     // Schedule the announcement with BullMQ
     const delay = scheduledDate.getTime() - Date.now();
-    await this.announcementQueue.add(
-      'publish-scheduled',
-      { announcementId: saved.id },
-      { delay },
-    );
-
-    this.logger.log(`Scheduled announcement ${saved.id} for ${scheduledDate.toISOString()}`);
+    try {
+      this.logger.log(`Adding to queue with delay: ${delay}ms`);
+      const job = await this.announcementQueue.add(
+        'publish-scheduled', 
+        { announcementId: saved.id },
+        { 
+          delay,
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 2000,
+          },
+          removeOnComplete: true,
+        },
+      );
+      this.logger.log(`Scheduled announcement ${saved.id} for ${scheduledDate.toISOString()}, job ID: ${job.id}`);
+    } catch (error) {
+      this.logger.error(`Failed to add announcement to queue: ${error.message}`, error.stack);
+      // Continue anyway - the announcement is saved and can be manually published
+    }
 
     return this.formatAnnouncementResponse(saved);
   }

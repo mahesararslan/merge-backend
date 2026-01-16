@@ -15,6 +15,7 @@ import { QueryInstructorQuizDto } from './dto/query-instructor-quiz.dto';
 import { QueryQuizAttemptsDto } from './dto/query-quiz-attempts.dto';
 import { QuizSubmissionStatus } from './enums/quiz-submission-status.enum';
 import { InstructorQuizStatus } from './enums/instructor-quiz-status.enum';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class QuizService {
@@ -29,11 +30,13 @@ export class QuizService {
     private roomRepository: Repository<Room>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private notificationService: NotificationService,
   ) {}
 
   async create(createQuizDto: CreateQuizDto, userId: string) {
     const room = await this.roomRepository.findOne({
       where: { id: createQuizDto.roomId },
+      relations: ['admin'],
     });
 
     if (!room) {
@@ -80,6 +83,9 @@ export class QuizService {
     const totalScore = questions.reduce((sum, q) => sum + q.points, 0);
     savedQuiz.totalScore = totalScore;
     await this.quizRepository.save(savedQuiz);
+
+    // Send notifications for the created quiz
+    await this.notificationService.createQuizNotifications(savedQuiz);
 
     return this.findOne(savedQuiz.id, userId);
   }

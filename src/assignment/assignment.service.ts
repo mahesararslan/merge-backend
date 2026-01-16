@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, IsNull } from 'typeorm';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 import { Assignment } from '../entities/assignment.entity';
 import { AssignmentAttempt } from '../entities/assignment-attempt.entity';
 import { Room } from '../entities/room.entity';
@@ -8,6 +10,7 @@ import { User } from '../entities/user.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
+import { ScheduleAssignmentDto } from './dto/schedule-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { QueryInstructorAssignmentDto } from './dto/query-instructor-assignment.dto';
 import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
@@ -17,9 +20,12 @@ import { UpdateAttemptDto } from './dto/update-attempt.dto';
 import { BulkScoreAttemptsDto } from './dto/bulk-score-attempts.dto';
 import { SubmissionStatus } from './enums/assignment-submission-status.enum';
 import { InstructorAssignmentStatus } from './enums/instructor-assignment-status.enum';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class AssignmentService {
+  private readonly logger = new Logger(AssignmentService.name);
+
   constructor(
     @InjectRepository(Assignment)
     private assignmentRepository: Repository<Assignment>,
@@ -31,11 +37,20 @@ export class AssignmentService {
     private userRepository: Repository<User>,
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
-  ) {}
+    @InjectQueue('assignments')
+    private assignmentQueue: Queue,
+    private notificationService: NotificationService,
+  ) {
+    // Test queue connection on startup
+    this.assignmentQueue.isReady().catch((error) => {
+      this.logger.error(`Queue not ready: ${error.message}`);
+    });
+  }
 
   async create(createAssignmentDto: CreateAssignmentDto, userId: string) {
     const room = await this.roomRepository.findOne({
       where: { id: createAssignmentDto.roomId },
+      relations: ['admin'],
     });
 
     if (!room) {
@@ -55,8 +70,81 @@ export class AssignmentService {
     assignment.author = user;
     assignment.startAt = createAssignmentDto.startAt ? new Date(createAssignmentDto.startAt) : null;
     assignment.endAt = createAssignmentDto.endAt ? new Date(createAssignmentDto.endAt) : null;
+    assignment.isPublished = true; // Immediately published
 
     const saved = await this.assignmentRepository.save(assignment);
+
+    // Trigger notifications for published assignment
+    if (saved.isPublished) {
+      await this.notificationService.createAssignmentNotifications(saved);
+    }
+
+    return this.formatAssignmentResponse(saved);
+  }
+
+  async schedule(scheduleAssignmentDto: ScheduleAssignmentDto, userId: string): Promise<any> {
+    const scheduledDate = new Date(scheduleAssignmentDto.scheduledAt);
+    
+    if (scheduledDate <= new Date()) {
+      throw new BadRequestException('Scheduled time must be in the future');
+    }
+
+    // Load room and user entities
+    const room = await this.roomRepository.findOne({
+      where: { id: scheduleAssignmentDto.roomId },
+      relations: ['admin'],
+    });
+
+    if (!room) {
+      throw new NotFoundException('Room not found');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    this.logger.log(`Scheduling assignment for: ${scheduledDate.toISOString()}`);
+
+    const assignment = this.assignmentRepository.create({
+      ...scheduleAssignmentDto,
+      scheduledAt: scheduledDate,
+      isPublished: false,
+      room,
+      author: user,
+      startAt: scheduleAssignmentDto.startAt ? new Date(scheduleAssignmentDto.startAt) : null,
+      endAt: scheduleAssignmentDto.endAt ? new Date(scheduleAssignmentDto.endAt) : null,
+    });
+
+    const saved = await this.assignmentRepository.save(assignment);
+    this.logger.log(`Scheduled assignment saved: ${saved.id}`);
+
+    // Schedule the assignment with BullMQ
+    const delay = scheduledDate.getTime() - Date.now();
+    try {
+      this.logger.log(`Adding to queue with delay: ${delay}ms`);
+      const job = await this.assignmentQueue.add(
+        'publish-scheduled', 
+        { assignmentId: saved.id },
+        { 
+          delay,
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 2000,
+          },
+          removeOnComplete: true,
+        },
+      );
+      this.logger.log(`Scheduled assignment ${saved.id} for ${scheduledDate.toISOString()}, job ID: ${job.id}`);
+    } catch (error) {
+      this.logger.error(`Failed to add assignment to queue: ${error.message}`, error.stack);
+      // Continue anyway - the assignment is saved and can be manually published
+    }
+
     return this.formatAssignmentResponse(saved);
   }
 

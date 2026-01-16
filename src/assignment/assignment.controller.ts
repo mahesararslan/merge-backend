@@ -13,6 +13,7 @@ import {
 import { AssignmentService } from './assignment.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
+import { ScheduleAssignmentDto } from './dto/schedule-assignment.dto';
 import { QueryAssignmentDto } from './dto/query-assignment.dto';
 import { QueryInstructorAssignmentDto } from './dto/query-instructor-assignment.dto';
 import { QueryStudentAssignmentDto } from './dto/query-student-assignment.dto';
@@ -37,6 +38,13 @@ export class AssignmentController {
   @RoomRoles(RoomMemberRole.ADMIN)
   create(@Body() createAssignmentDto: CreateAssignmentDto, @Request() req) {
     return this.assignmentService.create(createAssignmentDto, req.user.id);
+  }
+
+  @Post('schedule')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  schedule(@Body() scheduleAssignmentDto: ScheduleAssignmentDto, @Request() req) {
+    return this.assignmentService.schedule(scheduleAssignmentDto, req.user.id);
   }
 
   @Get()

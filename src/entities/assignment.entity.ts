@@ -43,6 +43,12 @@ export class Assignment {
   @Column({ default: false })
   isClosed: boolean;
 
+  @Column({ type: 'timestamp', nullable: true })
+  scheduledAt: Date | null;
+
+  @Column({ default: true })
+  isPublished: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 }

@@ -174,7 +174,14 @@ export class RoomService {
       relations: ['user'],
     });
 
-    const formattedModerators = moderators.map(m => this.formatUserInfo(m.user));
+    const formattedModerators = moderators.map(m => ({
+      id: m.id, // member_id
+      userId: m.user.id,
+      firstName: m.user.firstName,
+      lastName: m.user.lastName,
+      email: m.user.email,
+      image: m.user.image,
+    }));
 
     return {
       ...this.formatRoomResponse(room),

@@ -165,7 +165,7 @@ export class RoomService {
       throw new NotFoundException(`Room with ID ${id} not found`);
     }
 
-    // Get moderator IDs for this room
+    // Get moderators for this room
     const moderators = await this.roomMemberRepository.find({
       where: {
         room: { id },
@@ -174,11 +174,11 @@ export class RoomService {
       relations: ['user'],
     });
 
-    const moderatorIds = moderators.map(m => m.user.id);
+    const formattedModerators = moderators.map(m => this.formatUserInfo(m.user));
 
     return {
       ...this.formatRoomResponse(room),
-      moderators: moderatorIds,
+      moderators: formattedModerators,
     };
   }
 

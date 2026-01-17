@@ -28,5 +28,5 @@ export class QueryAttemptsDto {
 
   @IsOptional()
   @IsIn(['late', 'onTime'])
-  subFilters?: 'late' | 'onTime';
+  subFilter?: 'late' | 'onTime';
 }

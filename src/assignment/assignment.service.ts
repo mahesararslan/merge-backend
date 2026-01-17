@@ -461,7 +461,7 @@ export class AssignmentService {
   }
 
   async findOneForInstructor(id: string, queryDto: QueryAttemptsDto, userId: string) {
-    const { page = 1, limit = 20, sortBy = 'submitAt', sortOrder = 'DESC', filter = 'all', subFilters } = queryDto;
+    const { page = 1, limit = 20, sortBy = 'submitAt', sortOrder = 'DESC', filter = 'all', subFilter } = queryDto;
     const skip = (page - 1) * limit;
 
     const assignment = await this.assignmentRepository.findOne({

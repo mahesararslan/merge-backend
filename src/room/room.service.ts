@@ -819,6 +819,12 @@ export class RoomService {
       throw new NotFoundException('Member not found in this room');
     }
 
+    // Delete any associated join requests for this user in this room
+    await this.joinRequestRepository.delete({
+      room: { id: roomId },
+      user: { id: member.user.id },
+    });
+
     await this.roomMemberRepository.remove(member);
 
     return {

@@ -491,12 +491,12 @@ export class AssignmentService {
     } else if (filter === 'ungraded') {
       queryBuilder.andWhere('attempt.score IS NULL');
       
-      // Apply subFilters only when filter is ungraded
-      if (subFilters === 'late') {
+      // Apply subFilter only when filter is ungraded
+      if (subFilter === 'late') {
         // Late submissions: submitted after endAt (if endAt exists)
         queryBuilder.andWhere('assignment.endAt IS NOT NULL');
         queryBuilder.andWhere('attempt.submitAt > assignment.endAt');
-      } else if (subFilters === 'onTime') {
+      } else if (subFilter === 'onTime') {
         // On time submissions: submitted before/on endAt OR no endAt
         queryBuilder.andWhere(
           '(assignment.endAt IS NULL OR attempt.submitAt <= assignment.endAt)'

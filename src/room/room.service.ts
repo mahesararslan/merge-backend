@@ -188,7 +188,7 @@ export class RoomService {
     userId: string,
     queryDto: QueryUserFeedDto,
   ) {
-    const { page = 1, limit = 10, includeJoined } = queryDto;
+    const { page = 1, limit = 10, search } = queryDto;
     const skip = (page - 1) * limit;
 
     // Get user with their interests/tags
@@ -204,50 +204,96 @@ export class RoomService {
     const userTagNames = user.tags.map((tag) => tag.name);
     const hasPersonalizedFeed = userTagNames.length > 0;
 
-    // Get rooms user has joined or created (to exclude if includeJoined is false)
+    // Get rooms user has joined or created (always exclude them)
     const userRoomIds = await this.getUserRoomIds(userId);
 
-    const queryBuilder = this.roomRepository
+    // Base query for all public rooms excluding user's rooms
+    const baseQueryBuilder = this.roomRepository
       .createQueryBuilder('room')
       .leftJoinAndSelect('room.admin', 'admin')
       .leftJoinAndSelect('room.tags', 'tags')
       .where('room.isPublic = :isPublic', { isPublic: true });
 
-    // Exclude rooms user has already joined/created (unless includeJoined is true)
-    if (!includeJoined && userRoomIds.length > 0) {
-      queryBuilder.andWhere('room.id NOT IN (:...userRoomIds)', { userRoomIds });
+    // Exclude rooms user has already joined/created
+    if (userRoomIds.length > 0) {
+      baseQueryBuilder.andWhere('room.id NOT IN (:...userRoomIds)', { userRoomIds });
     }
+
+    // Apply search filter if provided
+    if (search) {
+      baseQueryBuilder.andWhere(
+        '(room.title ILIKE :search OR room.description ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    let rooms: Room[];
+    let total: number;
 
     if (hasPersonalizedFeed) {
-      // Prioritize rooms with matching tags
-      queryBuilder
-        .addSelect(
-          `(
-          SELECT COUNT(*)::int 
-          FROM room_tags rt 
-          INNER JOIN tags t ON rt."tagId" = t.id 
-          WHERE rt."roomId" = room.id 
-          AND t.name = ANY(:userTags)
-        )`,
-          'tag_matches',
-        )
-        .setParameter('userTags', userTagNames)
-        .orderBy('tag_matches', 'DESC')
-        .addOrderBy('room.createdAt', 'DESC');
-    } else {
-      // If user has no interests, show popular rooms or most recent
-      queryBuilder
-        .leftJoin('room_members', 'rm', 'rm."roomId" = room.id')
-        .addSelect('COUNT(rm.id)::int', 'member_count')
-        .groupBy('room.id, admin.id, tags.id')
-        .orderBy('member_count', 'DESC')
-        .addOrderBy('room.createdAt', 'DESC');
-    }
+      // Get personalized rooms (matching user's tags)
+      const personalizedQuery = baseQueryBuilder.clone()
+        .innerJoin('room.tags', 'userTags')
+        .where('userTags.name IN (:...userTagNames)', { userTagNames })
+        .andWhere('room.isPublic = :isPublic', { isPublic: true });
+      
+      if (userRoomIds.length > 0) {
+        personalizedQuery.andWhere('room.id NOT IN (:...userRoomIds)', { userRoomIds });
+      }
+      
+      if (search) {
+        personalizedQuery.andWhere(
+          '(room.title ILIKE :search OR room.description ILIKE :search)',
+          { search: `%${search}%` },
+        );
+      }
 
-    const [rooms, total] = await queryBuilder
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+      const personalizedRooms = await personalizedQuery
+        .orderBy('room.createdAt', 'DESC')
+        .getMany();
+
+      // Get other public rooms (not matching user's tags)
+      const otherRoomsQuery = this.roomRepository
+        .createQueryBuilder('room')
+        .leftJoinAndSelect('room.admin', 'admin')
+        .leftJoinAndSelect('room.tags', 'tags')
+        .where('room.isPublic = :isPublic', { isPublic: true });
+      
+      if (userRoomIds.length > 0) {
+        otherRoomsQuery.andWhere('room.id NOT IN (:...userRoomIds)', { userRoomIds });
+      }
+      
+      if (search) {
+        otherRoomsQuery.andWhere(
+          '(room.title ILIKE :search OR room.description ILIKE :search)',
+          { search: `%${search}%` },
+        );
+      }
+
+      // Exclude personalized rooms from other rooms
+      const personalizedRoomIds = personalizedRooms.map(r => r.id);
+      if (personalizedRoomIds.length > 0) {
+        otherRoomsQuery.andWhere('room.id NOT IN (:...personalizedRoomIds)', { personalizedRoomIds });
+      }
+
+      const otherRooms = await otherRoomsQuery
+        .orderBy('room.createdAt', 'DESC')
+        .getMany();
+
+      // Combine: personalized first, then others
+      const allRooms = [...personalizedRooms, ...otherRooms];
+      total = allRooms.length;
+
+      // Apply pagination to combined results
+      rooms = allRooms.slice(skip, skip + limit);
+    } else {
+      // No personalized feed, just show all public rooms
+      [rooms, total] = await baseQueryBuilder
+        .orderBy('room.createdAt', 'DESC')
+        .skip(skip)
+        .take(limit)
+        .getManyAndCount();
+    }
 
     // Add additional metadata to each room
     const roomsWithMetadata = await Promise.all(
@@ -274,7 +320,7 @@ export class RoomService {
       currentPage: page,
       userTags: userTagNames,
       hasPersonalizedFeed,
-      includeJoined,
+      search: search || null,
     };
   }
 
@@ -739,6 +785,37 @@ export class RoomService {
       role: savedMember.role,
       joinedAt: savedMember.joinedAt,
       user: this.formatUserInfo(savedMember.user),
+    };
+  }
+
+  async removeMember(
+    roomId: string,
+    memberId: string,
+    adminId: string,
+  ): Promise<{ message: string }> {
+    const room = await this.findOne(roomId);
+
+    // Only room admin can remove members
+    if (room.admin.id !== adminId) {
+      throw new ForbiddenException('Only room admin can remove members');
+    }
+
+    const member = await this.roomMemberRepository.findOne({
+      where: {
+        id: memberId,
+        room: { id: roomId },
+      },
+      relations: ['user'],
+    });
+
+    if (!member) {
+      throw new NotFoundException('Member not found in this room');
+    }
+
+    await this.roomMemberRepository.remove(member);
+
+    return {
+      message: `${member.user.firstName} ${member.user.lastName} has been removed from the room`,
     };
   }
 

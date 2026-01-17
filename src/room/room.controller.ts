@@ -148,6 +148,18 @@ export class RoomController {
     );
   }
 
+  // Remove member from room (admin only)
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  @Delete(':roomId/members/:memberId')
+  removeMember(
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @Req() req,
+  ) {
+    return this.roomService.removeMember(roomId, memberId, req.user.id);
+  }
+
   // Get pending join requests for a room (admin/moderator only)
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.ADMIN, RoomMemberRole.MODERATOR)

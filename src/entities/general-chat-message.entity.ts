@@ -20,7 +20,7 @@ export class GeneralChatMessage {
   @ManyToOne(() => User)
   author: User;
 
-  @Column()
+  @Column({ nullable: true })
   content: string;
 
   @Column({ nullable: true })

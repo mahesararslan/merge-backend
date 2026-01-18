@@ -103,7 +103,11 @@ export class NotificationService {
         {
           type: 'announcement',
           roomId: announcement.room.id,
+          roomTitle: announcement.room.title,
           announcementId: announcement.id,
+          announcementTitle: announcement.title,
+          authorId: announcement.author.id,
+          actionUrl: `/rooms/${announcement.room.id}/announcements/${announcement.id}`,
         },
       ).catch((error) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
@@ -189,7 +193,11 @@ export class NotificationService {
         {
           type: 'assignment',
           roomId: assignment.room.id,
+          roomTitle: assignment.room.title,
           assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          authorId: assignment.author.id,
+          actionUrl: `/rooms/${assignment.room.id}/assignments/${assignment.id}`,
         },
       ).catch((error) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
@@ -275,7 +283,11 @@ export class NotificationService {
         {
           type: 'quiz',
           roomId: quiz.room.id,
+          roomTitle: quiz.room.title,
           quizId: quiz.id,
+          quizTitle: quiz.title,
+          authorId: quiz.author.id,
+          actionUrl: `/rooms/${quiz.room.id}/quizzes/${quiz.id}`,
         },
       ).catch((error) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);

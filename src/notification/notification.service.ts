@@ -338,4 +338,68 @@ export class NotificationService {
       this.logger.error(`Error sending FCM notifications: ${error.message}`, error.stack);
     }
   }
+
+  async getUserNotifications(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<{
+    notifications: Notification[];
+    total: number;
+    unreadCount: number;
+    totalPages: number;
+    currentPage: number;
+  }> {
+    const skip = (page - 1) * limit;
+
+    const [notifications, total] = await this.notificationRepository.findAndCount({
+      where: { user: { id: userId } },
+      order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
+    });
+
+    const unreadCount = await this.notificationRepository.count({
+      where: { user: { id: userId }, isRead: false },
+    });
+
+    return {
+      notifications,
+      total,
+      unreadCount,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+    };
+  }
+
+  async markAsRead(notificationId: string, userId: string): Promise<Notification> {
+    const notification = await this.notificationRepository.findOne({
+      where: { id: notificationId, user: { id: userId } },
+    });
+
+    if (!notification) {
+      throw new Error('Notification not found');
+    }
+
+    notification.isRead = true;
+    return this.notificationRepository.save(notification);
+  }
+
+  async markAllAsRead(userId: string): Promise<void> {
+    await this.notificationRepository.update(
+      { user: { id: userId }, isRead: false },
+      { isRead: true },
+    );
+  }
+
+  async deleteNotification(notificationId: string, userId: string): Promise<void> {
+    const result = await this.notificationRepository.delete({
+      id: notificationId,
+      user: { id: userId },
+    });
+
+    if (result.affected === 0) {
+      throw new Error('Notification not found');
+    }
+  }
 }

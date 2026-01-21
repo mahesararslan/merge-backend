@@ -28,15 +28,13 @@ export class AnnouncementController {
   @Post('create')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
-  create(@Body() createAnnouncementDto: CreateAnnouncementDto, @Request() req) {
-    return this.announcementService.create(createAnnouncementDto, req.user.id);
-  }
-
-  @Post('schedule')
-  @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
-  schedule(@Body() scheduleAnnouncementDto: ScheduleAnnouncementDto, @Request() req) {
-    return this.announcementService.schedule(scheduleAnnouncementDto, req.user.id);
+  create(@Body() createOrScheduleDto: any, @Request() req) {
+    // If scheduledAt is present, treat as schedule, else as immediate create
+    if (createOrScheduleDto.scheduledAt) {
+      return this.announcementService.schedule(createOrScheduleDto, req.user.id);
+    } else {
+      return this.announcementService.create(createOrScheduleDto, req.user.id);
+    }
   }
 
   @Get()

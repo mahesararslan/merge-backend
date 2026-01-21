@@ -144,11 +144,13 @@ export class AnnouncementService {
     const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC', roomId, filter = 'all' } = queryDto;
     const skip = (page - 1) * limit;
 
+
     let queryBuilder = this.announcementRepository
       .createQueryBuilder('announcement')
       .leftJoinAndSelect('announcement.room', 'room')
       .leftJoinAndSelect('announcement.author', 'author')
-      .where('announcement.room.id = :roomId', { roomId });
+      .where('announcement.room.id = :roomId', { roomId })
+      .andWhere('announcement.isPublished = true');
 
     // Apply filters
     if (filter === 'published') {

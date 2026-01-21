@@ -289,12 +289,14 @@ export class AssignmentService {
     const skip = (page - 1) * limit;
     const now = new Date();
 
+
     let queryBuilder = this.assignmentRepository
       .createQueryBuilder('assignment')
       .leftJoinAndSelect('assignment.room', 'room')
       .leftJoinAndSelect('assignment.author', 'author')
       .leftJoinAndSelect('room.admin', 'admin')
-      .where('assignment.room.id = :roomId', { roomId });
+      .where('assignment.room.id = :roomId', { roomId })
+      .andWhere('assignment.isPublished = true');
 
     // Search filter
     if (search) {

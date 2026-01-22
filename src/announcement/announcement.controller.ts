@@ -39,14 +39,14 @@ export class AnnouncementController {
 
   @Get()
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   findAll(@Query() queryDto: QueryAnnouncementDto) {
     return this.announcementService.findAll(queryDto);
   }
 
   @Get(':id')
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR, RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   findOne(
     @Param('id') id: string,
     @Query('roomId') roomId: string,

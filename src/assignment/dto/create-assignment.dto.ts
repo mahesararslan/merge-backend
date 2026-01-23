@@ -36,4 +36,8 @@ export class CreateAssignmentDto {
   @IsOptional()
   @IsBoolean()
   isTurnInLateEnabled?: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
 }

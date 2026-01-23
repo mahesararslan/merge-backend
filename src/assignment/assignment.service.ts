@@ -82,8 +82,8 @@ export class AssignmentService {
     return this.formatAssignmentResponse(saved);
   }
 
-  async schedule(scheduleAssignmentDto: ScheduleAssignmentDto, userId: string): Promise<any> {
-    const scheduledDate = new Date(scheduleAssignmentDto.scheduledAt);
+  async schedule(scheduleAssignmentDto: CreateAssignmentDto, userId: string): Promise<any> {
+    const scheduledDate = new Date(scheduleAssignmentDto.scheduledAt??'');
     
     if (scheduledDate <= new Date()) {
       throw new BadRequestException('Scheduled time must be in the future');

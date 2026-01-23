@@ -13,4 +13,8 @@ export class CreateAnnouncementDto {
   @IsOptional()
   @IsBoolean()
   isPublished?: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
 }

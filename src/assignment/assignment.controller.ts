@@ -36,12 +36,12 @@ export class AssignmentController {
   @Post('/create')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.ADMIN)
-  create(@Body() createOrScheduleDto: any, @Request() req) {
+  create(@Body() createAssignmentDto: CreateAssignmentDto, @Request() req) {
     // If scheduledAt is present, treat as schedule, else as immediate create
-    if (createOrScheduleDto.scheduledAt) {
-      return this.assignmentService.schedule(createOrScheduleDto, req.user.id);
+    if (createAssignmentDto.scheduledAt) {
+      return this.assignmentService.schedule(createAssignmentDto, req.user.id);
     } else {
-      return this.assignmentService.create(createOrScheduleDto, req.user.id);
+      return this.assignmentService.create(createAssignmentDto, req.user.id);
     }
   }
 

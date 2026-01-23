@@ -11,7 +11,6 @@ import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
-import { ScheduleAnnouncementDto } from './dto/schedule-announcement.dto';
 import { QueryAnnouncementDto } from './dto/query-announcement.dto';
 import { NotificationService } from '../notification/notification.service';
 
@@ -75,8 +74,8 @@ export class AnnouncementService {
     return this.formatAnnouncementResponse(saved);
   }
 
-  async schedule(scheduleAnnouncementDto: ScheduleAnnouncementDto, userId: string): Promise<any> {
-    const scheduledDate = new Date(scheduleAnnouncementDto.scheduledAt);
+  async schedule(scheduleAnnouncementDto: CreateAnnouncementDto, userId: string): Promise<any> {
+    const scheduledDate = new Date(scheduleAnnouncementDto.scheduledAt??'');
     
     if (scheduledDate <= new Date()) {
       throw new BadRequestException('Scheduled time must be in the future');
@@ -253,23 +252,6 @@ export class AnnouncementService {
     try {
       // Create notifications and send FCM
       await this.notificationService.createAnnouncementNotifications(announcement);
-
-      // Notify WebSocket server for scheduled announcements
-      const wsServerUrl = this.configService.get('COMMUNICATIONS_SERVER_URL');
-      if (wsServerUrl) {
-        try {
-          const response = await this.formatAnnouncementResponse(announcement);
-          await firstValueFrom(
-            this.httpService.post(`${wsServerUrl}/internal/announcement-published`, {
-              ...response,
-              roomId: announcement.room.id,
-            }),
-          );
-          this.logger.log(`WebSocket server notified for scheduled announcement ${announcement.id}`);
-        } catch (error) {
-          this.logger.error(`Failed to notify WebSocket server: ${error.message}`);
-        }
-      }
     } catch (error) {
       this.logger.error(`Error publishing announcement: ${error.message}`, error.stack);
     }

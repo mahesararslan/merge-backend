@@ -23,8 +23,8 @@ export class GeneralChatMessage {
   @Column({ nullable: true })
   content: string;
 
-  @Column({ nullable: true })
-  attachmentURL: string;
+  @Column('simple-json', { nullable: true })
+  attachments: { name: string; url: string }[];
 
   @Column({ nullable: true })
   replyToId: string;

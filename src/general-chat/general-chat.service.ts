@@ -38,9 +38,9 @@ export class GeneralChatService {
 
     const message = new GeneralChatMessage();
     const now = new Date(); // @ts-ignore
-    message.content = createMessageDto.content; // @ts-ignore
-    message.attachmentURL = createMessageDto.attachmentURL ?? null; // @ts-ignore
-    message.replyToId = createMessageDto.replyToId ?? null;
+    message.content = createMessageDto.content;
+    message.attachments = createMessageDto.attachments ?? [];
+    message.replyToId = createMessageDto.replyToId ?? '';
     message.deletedForUserIds = [];
     message.author = author;
     message.room = room;
@@ -144,13 +144,13 @@ export class GeneralChatService {
       throw new BadRequestException('Cannot edit a deleted message');
     }
 
+
     if (updateMessageDto.content !== undefined) {
       message.content = updateMessageDto.content;
       message.isEdited = true;
     }
-
-    if (updateMessageDto.attachmentURL !== undefined) {
-      message.attachmentURL = updateMessageDto.attachmentURL;
+    if (updateMessageDto.attachments !== undefined) {
+      message.attachments = updateMessageDto.attachments;
     }
 
     message.updatedAt = new Date();
@@ -222,7 +222,7 @@ export class GeneralChatService {
     return {
       id: message.id,
       content,
-      attachmentURL: message.isDeletedForEveryone ? null : message.attachmentURL,
+      attachments: message.isDeletedForEveryone ? [] : message.attachments,
       replyToId: message.replyToId,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,

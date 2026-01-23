@@ -1,4 +1,5 @@
-import { IsString, IsOptional, MaxLength } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateGeneralChatMessageDto {
   @IsOptional()
@@ -7,6 +8,17 @@ export class UpdateGeneralChatMessageDto {
   content?: string;
 
   @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AttachmentDto)
+  attachments?: AttachmentDto[];
+
+}
+
+export class AttachmentDto {
   @IsString()
-  attachmentURL?: string;
+  name: string;
+
+  @IsString()
+  url: string;
 }

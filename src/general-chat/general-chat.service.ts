@@ -229,7 +229,7 @@ export class GeneralChatService {
       isEdited: message.isEdited,
       isDeletedForEveryone: message.isDeletedForEveryone,
       isMine: message.author?.id === currentUserId,
-      author: message.author ? {
+      user: message.author ? {
         id: message.author.id,
         firstName: message.author.firstName,
         lastName: message.author.lastName,

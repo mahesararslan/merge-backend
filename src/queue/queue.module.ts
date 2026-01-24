@@ -21,6 +21,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     BullModule.registerQueue({
       name: 'assignments',
     }),
+    BullModule.registerQueue({
+      name: 'quizzes',
+    }),
   ],
   exports: [BullModule],
 })

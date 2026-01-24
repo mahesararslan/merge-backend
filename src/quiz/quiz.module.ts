@@ -10,6 +10,7 @@ import { User } from '../entities/user.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 import { NotificationModule } from '../notification/notification.module';
+import { QueueModule } from 'src/queue/queue.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { NotificationModule } from '../notification/notification.module';
       User,
       RoomMember,
     ]),
+    QueueModule,
     NotificationModule,
   ],
   controllers: [QuizController],

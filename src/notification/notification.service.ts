@@ -490,4 +490,38 @@ export class NotificationService {
     );
     this.logger.log(`Sent 24hr-before-due push notification for quiz ${quiz.id}`);
   }
+
+  async sendCalendarEventReminder(eventId: string, type: '24hr' | '5min'): Promise<void> {
+    // Find event with owner
+    const event = await this.notificationRepository.manager.getRepository(require('../entities/calendar-event.entity').CalendarEvent).findOne({
+      where: { id: eventId },
+      relations: ['owner'],
+    });
+    if (!event) {
+      this.logger.error(`Calendar event ${eventId} not found for reminder`);
+      return;
+    }
+    // Only notify the owner
+    const userId = event.owner.id;
+    let message = '';
+    if (type === '24hr') {
+      message = `Reminder: Your calendar task "${event.title}" is due in 24 hours.`;
+    } else {
+      message = `Reminder: Your calendar task "${event.title}" is due in 5 minutes!`;
+    }
+    await this.sendFcmNotifications(
+      [userId],
+      'Calendar',
+      message,
+      {
+        type: 'calendar-reminder',
+        eventId: event.id,
+        eventTitle: event.title,
+        deadline: event.deadline.toISOString(),
+        reminderType: type,
+        actionUrl: `/calendar/${event.id}`,
+      },
+    );
+    this.logger.log(`Sent ${type} reminder push notification for calendar event ${event.id}`);
+  }
 }

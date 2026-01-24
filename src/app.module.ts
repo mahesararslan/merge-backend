@@ -24,6 +24,7 @@ import { AnnouncementModule } from './announcement/announcement.module';
 import { NotificationModule } from './notification/notification.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { QueueModule } from './queue/queue.module';
+import { CalendarModule } from './calendar/calendar.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { QueueModule } from './queue/queue.module';
     QueueModule,
     AnnouncementModule,
     NotificationModule,
+    CalendarModule,
   ],
   controllers: [AppController],
   providers: [

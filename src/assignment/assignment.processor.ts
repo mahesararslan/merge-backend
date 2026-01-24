@@ -53,4 +53,25 @@ export class AssignmentProcessor {
       throw error;
     }
   }
+
+  @Process('notify-24hr-before-due')
+  async handleNotify24hrBeforeDue(job: Job) {
+    const { assignmentId } = job.data;
+    this.logger.log(`Processing 24hr-before-due notification for assignment: ${assignmentId}`);
+    try {
+      const assignment = await this.assignmentRepository.findOne({
+        where: { id: assignmentId },
+        relations: ['room', 'room.admin', 'author'],
+      });
+      if (!assignment) {
+        this.logger.error(`Assignment ${assignmentId} not found`);
+        return;
+      }
+      await this.notificationService.sendAssignmentDueSoonNotification(assignmentId);
+      this.logger.log(`Sent 24hr-before-due notification for assignment: ${assignmentId}`);
+    } catch (error) {
+      this.logger.error(`Error processing scheduled assignment: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
 }

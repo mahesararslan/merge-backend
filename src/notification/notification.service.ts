@@ -414,4 +414,80 @@ export class NotificationService {
       throw new Error('Notification not found');
     }
   }
+
+  async sendAssignmentDueSoonNotification(assignmentId: string): Promise<void> {
+    // Find assignment with room, admin, author
+    const assignment = await this.notificationRepository.manager.getRepository(Assignment).findOne({
+      where: { id: assignmentId },
+      relations: ['room', 'room.admin', 'author'],
+    });
+    if (!assignment) {
+      this.logger.error(`Assignment ${assignmentId} not found for due soon notification`);
+      return;
+    }
+    // Get all members of the room
+    const roomMembers = await this.roomMemberRepository.find({
+      where: { room: { id: assignment.room.id } },
+      relations: ['user'],
+    });
+    const allUserIds = new Set([
+      assignment.room.admin.id,
+      ...roomMembers.map((member) => member.user.id),
+    ]);
+    allUserIds.delete(assignment.author.id);
+    // Send FCM notification
+    await this.sendFcmNotifications(
+      Array.from(allUserIds),
+      assignment.room.title,
+      `Assignment due in 24 hours: ${assignment.title}`,
+      {
+        type: 'assignment-due-soon',
+        roomId: assignment.room.id,
+        roomTitle: assignment.room.title,
+        assignmentId: assignment.id,
+        assignmentTitle: assignment.title,
+        authorId: assignment.author.id,
+        actionUrl: `/rooms/${assignment.room.id}/assignments/${assignment.id}`,
+      },
+    );
+    this.logger.log(`Sent 24hr-before-due push notification for assignment ${assignment.id}`);
+  }
+
+  async sendQuizDueSoonNotification(quizId: string): Promise<void> {
+    // Find quiz with room, admin, author
+    const quiz = await this.notificationRepository.manager.getRepository(Quiz).findOne({
+      where: { id: quizId },
+      relations: ['room', 'room.admin', 'author'],
+    });
+    if (!quiz) {
+      this.logger.error(`Quiz ${quizId} not found for due soon notification`);
+      return;
+    }
+    // Get all members of the room
+    const roomMembers = await this.roomMemberRepository.find({
+      where: { room: { id: quiz.room.id } },
+      relations: ['user'],
+    });
+    const allUserIds = new Set([
+      quiz.room.admin.id,
+      ...roomMembers.map((member) => member.user.id),
+    ]);
+    allUserIds.delete(quiz.author.id);
+    // Send FCM notification
+    await this.sendFcmNotifications(
+      Array.from(allUserIds),
+      quiz.room.title,
+      `Quiz due in 24 hours: ${quiz.title}`,
+      {
+        type: 'quiz-due-soon',
+        roomId: quiz.room.id,
+        roomTitle: quiz.room.title,
+        quizId: quiz.id,
+        quizTitle: quiz.title,
+        authorId: quiz.author.id,
+        actionUrl: `/rooms/${quiz.room.id}/quizzes/${quiz.id}`,
+      },
+    );
+    this.logger.log(`Sent 24hr-before-due push notification for quiz ${quiz.id}`);
+  }
 }

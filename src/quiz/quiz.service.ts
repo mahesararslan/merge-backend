@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Quiz } from '../entities/quiz.entity';
@@ -16,9 +16,13 @@ import { QueryQuizAttemptsDto } from './dto/query-quiz-attempts.dto';
 import { QuizSubmissionStatus } from './enums/quiz-submission-status.enum';
 import { InstructorQuizStatus } from './enums/instructor-quiz-status.enum';
 import { NotificationService } from '../notification/notification.service';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 
 @Injectable()
 export class QuizService {
+  private readonly logger = new Logger(QuizService.name);
+
   constructor(
     @InjectRepository(Quiz)
     private quizRepository: Repository<Quiz>,
@@ -30,6 +34,8 @@ export class QuizService {
     private roomRepository: Repository<Room>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectQueue('quizzes')
+    private quizQueue: Queue,
     private notificationService: NotificationService,
   ) {}
 
@@ -63,6 +69,33 @@ export class QuizService {
     }
 
     const savedQuiz = await this.quizRepository.save(quiz);
+
+    // Schedule 24hr-before-due notification if deadline is at least 24h in future
+    if (savedQuiz.deadline) {
+      const deadline = new Date(savedQuiz.deadline).getTime();
+      const now = Date.now();
+      const diff = deadline - now;
+      const twentyFourHours = 24 * 60 * 60 * 1000;
+      if (diff > twentyFourHours) {
+        const delay = deadline - twentyFourHours - now;
+        try {
+          // You need to inject the quizQueue (BullMQ) in the constructor for this to work
+          await this.quizQueue.add(
+            'notify-24hr-before-due',
+            { quizId: savedQuiz.id },
+            {
+              delay,
+              removeOnComplete: true,
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 2000 },
+            },
+          );
+          this.logger?.log?.(`Scheduled 24hr-before-due notification for quiz ${savedQuiz.id}`);
+        } catch (error) {
+          this.logger?.error?.(`Failed to schedule 24hr-before-due notification: ${error.message}`);
+        }
+      }
+    }
 
     // Create questions - set the quiz relation object
     const questions: QuizQuestion[] = [];

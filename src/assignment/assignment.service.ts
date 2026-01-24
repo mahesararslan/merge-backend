@@ -79,6 +79,32 @@ export class AssignmentService {
       await this.notificationService.createAssignmentNotifications(saved);
     }
 
+    // Schedule 24hr-before-due notification if endAt is at least 24h in future
+    if (saved.endAt) {
+      const endAt = new Date(saved.endAt).getTime();
+      const now = Date.now();
+      const diff = endAt - now;
+      const twentyFourHours = 24 * 60 * 60 * 1000;
+      if (diff > twentyFourHours) {
+        const delay = endAt - twentyFourHours - now;
+        try {
+          await this.assignmentQueue.add(
+            'notify-24hr-before-due',
+            { assignmentId: saved.id },
+            {
+              delay,
+              removeOnComplete: true,
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 2000 },
+            },
+          );
+          this.logger.log(`Scheduled 24hr-before-due notification for assignment ${saved.id}`);
+        } catch (error) {
+          this.logger.error(`Failed to schedule 24hr-before-due notification: ${error.message}`);
+        }
+      }
+    }
+
     return this.formatAssignmentResponse(saved);
   }
 
@@ -145,6 +171,31 @@ export class AssignmentService {
       // Continue anyway - the assignment is saved and can be manually published
     }
 
+    // Schedule 24hr-before-due notification if endAt is at least 24h in future
+    if (saved.endAt) {
+      const endAt = new Date(saved.endAt).getTime();
+      const now = Date.now();
+      const diff = endAt - now;
+      const twentyFourHours = 24 * 60 * 60 * 1000;
+      if (diff > twentyFourHours) {
+        const delay = endAt - twentyFourHours - now;
+        try {
+          await this.assignmentQueue.add(
+            'notify-24hr-before-due',
+            { assignmentId: saved.id },
+            {
+              delay,
+              removeOnComplete: true,
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 2000 },
+            },
+          );
+          this.logger.log(`Scheduled 24hr-before-due notification for assignment ${saved.id}`);
+        } catch (error) {
+          this.logger.error(`Failed to schedule 24hr-before-due notification: ${error.message}`);
+        }
+      }
+    }
     return this.formatAssignmentResponse(saved);
   }
 

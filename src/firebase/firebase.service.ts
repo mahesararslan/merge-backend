@@ -47,24 +47,22 @@ export class FirebaseService implements OnModuleInit {
     }
 
     try {
-      const message: admin.messaging.Message = {
-        token,
-        notification: {
-          title: payload.title,
-          body: payload.body,
-        },
-        data: payload.data,
-        webpush: {
-          headers: {
-            Urgency: 'high',
-          },
-          notification: {
-            title: payload.title,
-            body: payload.body,
-            requireInteraction: true,
-          },
-        },
-      };
+     const message: admin.messaging.Message = {
+  token,
+  data: {
+    title: payload.title,
+    body: payload.body,
+    ...payload.data,
+  },
+  webpush: {
+    headers: {
+      Urgency: 'high',
+    },
+    fcmOptions: {
+      link: payload.data?.actionUrl || '/',
+    },
+  },
+};
 
       await admin.messaging().send(message);
       return true;
@@ -87,24 +85,22 @@ export class FirebaseService implements OnModuleInit {
     }
 
     try {
-      const messages: admin.messaging.Message[] = tokens.map(token => ({
-        token,
-        notification: {
-          title: payload.title,
-          body: payload.body,
-        },
-        data: payload.data,
-        webpush: {
-          headers: {
-            Urgency: 'high',
-          },
-          notification: {
-            title: payload.title,
-            body: payload.body,
-            requireInteraction: true,
-          },
-        },
-      }));
+    const messages: admin.messaging.Message[] = tokens.map(token => ({
+  token,
+  data: {
+    title: payload.title,
+    body: payload.body,
+    ...payload.data,
+  },
+  webpush: {
+    headers: {
+      Urgency: 'high',
+    },
+    fcmOptions: {
+      link: payload.data?.actionUrl || '/',
+    },
+  },
+}));
 
       const response = await admin.messaging().sendEach(messages);
       

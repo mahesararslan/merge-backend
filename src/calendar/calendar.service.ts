@@ -1,9 +1,10 @@
+import { UpdateCalendarEventStatusDto } from './dto/update-calendar-event-status.dto';
 import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Repository } from 'typeorm';
 import { Queue } from 'bull';
-import { CalendarEvent } from '../entities/calendar-event.entity';
+import { CalendarEvent, TaskStatus } from '../entities/calendar-event.entity';
 import { User } from '../entities/user.entity';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from './dto/update-calendar-event.dto';
@@ -28,6 +29,7 @@ export class CalendarService {
 			...createCalendarEventDto,
 			owner: user,
 			deadline: new Date(createCalendarEventDto.deadline),
+			taskStatus: TaskStatus.PENDING,
 		});
 		const saved = await this.calendarEventRepository.save(event);
 
@@ -62,6 +64,7 @@ export class CalendarService {
 		if (event.owner.id !== userId) throw new ForbiddenException('Forbidden');
 		Object.assign(event, updateCalendarEventDto);
 		if (updateCalendarEventDto.deadline) event.deadline = new Date(updateCalendarEventDto.deadline);
+		if (updateCalendarEventDto.taskCategory) event.taskCategory = updateCalendarEventDto.taskCategory;
 		const saved = await this.calendarEventRepository.save(event);
 		// (Re)schedule notifications if deadline changed
 		// (For brevity, not removing old jobs; in production, consider job idempotency)
@@ -84,5 +87,13 @@ export class CalendarService {
 		if (event.owner.id !== userId) throw new ForbiddenException('Forbidden');
 		await this.calendarEventRepository.remove(event);
 		return { message: 'Event deleted' };
+	}
+
+	async updateStatus(id: string, dto: UpdateCalendarEventStatusDto, userId: string) {
+		const event = await this.calendarEventRepository.findOne({ where: { id }, relations: ['owner'] });
+		if (!event) throw new NotFoundException('Event not found');
+		if (event.owner.id !== userId) throw new ForbiddenException('Forbidden');
+		event.taskStatus = dto.status;
+		return this.calendarEventRepository.save(event);
 	}
 }

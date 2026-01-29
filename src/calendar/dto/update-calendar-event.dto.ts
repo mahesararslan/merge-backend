@@ -1,4 +1,6 @@
-import { IsString, IsOptional, IsDateString } from 'class-validator';
+
+import { IsString, IsOptional, IsDateString, IsEnum } from 'class-validator';
+import { TaskCategory } from '../../entities/calendar-event.entity';
 
 export class UpdateCalendarEventDto {
   @IsOptional()
@@ -12,4 +14,8 @@ export class UpdateCalendarEventDto {
   @IsOptional()
   @IsDateString()
   deadline?: string;
+
+  @IsOptional()
+  @IsEnum(TaskCategory)
+  taskCategory?: TaskCategory;
 }

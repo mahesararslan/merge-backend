@@ -13,6 +13,8 @@ import {
 import { CalendarService } from './calendar.service';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from './dto/update-calendar-event.dto';
+import { TaskStatus } from '../entities/calendar-event.entity';
+import { UpdateCalendarEventStatusDto } from './dto/update-calendar-event-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 
 @Controller('calendar')
@@ -42,6 +44,15 @@ export class CalendarController {
     @Req() req,
   ) {
     return this.calendarService.update(id, updateCalendarEventDto, req.user.id);
+  }
+
+  @Patch(':id/status')
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() updateStatusDto: UpdateCalendarEventStatusDto,
+    @Req() req,
+  ) {
+    return this.calendarService.updateStatus(id, updateStatusDto, req.user.id);
   }
 
   @Delete(':id')

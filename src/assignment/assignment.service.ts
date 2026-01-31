@@ -21,6 +21,8 @@ import { BulkScoreAttemptsDto } from './dto/bulk-score-attempts.dto';
 import { SubmissionStatus } from './enums/assignment-submission-status.enum';
 import { InstructorAssignmentStatus } from './enums/instructor-assignment-status.enum';
 import { NotificationService } from '../notification/notification.service';
+import { CalendarService } from '../calendar/calendar.service';
+import { TaskCategory } from '../entities/calendar-event.entity';
 
 @Injectable()
 export class AssignmentService {
@@ -40,6 +42,7 @@ export class AssignmentService {
     @InjectQueue('assignments')
     private assignmentQueue: Queue,
     private notificationService: NotificationService,
+    private calendarService: CalendarService,
   ) {
     // Test queue connection on startup
     this.assignmentQueue.isReady().catch((error) => {
@@ -77,6 +80,15 @@ export class AssignmentService {
     // Trigger notifications for published assignment
     if (saved.isPublished) {
       await this.notificationService.createAssignmentNotifications(saved);
+      // Add to calendar for all room members
+      if (saved.endAt) {
+        await this.calendarService.createForRoomMembers({
+          title: saved.title,
+          description: saved.description || '',
+          deadline: saved.endAt.toISOString(),
+          taskCategory: TaskCategory.ASSIGNMENT,
+        }, saved.room.id);
+      }
     }
 
     // Schedule 24hr-before-due notification if endAt is at least 24h in future

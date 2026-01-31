@@ -5,6 +5,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Assignment } from '../entities/assignment.entity';
 import { NotificationService } from '../notification/notification.service';
+import { CalendarService } from '../calendar/calendar.service';
+import { TaskCategory } from '../entities/calendar-event.entity';
 
 @Processor('assignments')
 @Injectable()
@@ -15,6 +17,7 @@ export class AssignmentProcessor {
     @InjectRepository(Assignment)
     private assignmentRepository: Repository<Assignment>,
     private notificationService: NotificationService,
+    private calendarService: CalendarService,
   ) {
     this.logger.log('AssignmentProcessor initialized and ready to process jobs');
   }
@@ -46,6 +49,16 @@ export class AssignmentProcessor {
 
       // Create notifications and send FCM
       await this.notificationService.createAssignmentNotifications(assignment);
+
+      // Add to calendar for all room members
+      if (assignment.endAt) {
+        await this.calendarService.createForRoomMembers({
+          title: assignment.title,
+          description: assignment.description || '',
+          deadline: assignment.endAt.toISOString(),
+          taskCategory: TaskCategory.ASSIGNMENT,
+        }, assignment.room.id);
+      }
 
       this.logger.log(`Successfully published assignment: ${assignmentId}`);
     } catch (error) {

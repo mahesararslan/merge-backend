@@ -6,11 +6,12 @@ import { CalendarController } from './calendar.controller';
 import { CalendarProcessor } from './calendar.processor';
 import { CalendarEvent } from '../entities/calendar-event.entity';
 import { User } from '../entities/user.entity';
+import { RoomMember } from '../entities/room-member.entity';
 import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CalendarEvent, User]),
+    TypeOrmModule.forFeature([CalendarEvent, User, RoomMember]),
     BullModule.registerQueue({ name: 'calendar' }),
     NotificationModule,
   ],

@@ -13,7 +13,6 @@ import {
 import { CalendarService } from './calendar.service';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from './dto/update-calendar-event.dto';
-import { TaskStatus } from '../entities/calendar-event.entity';
 import { UpdateCalendarEventStatusDto } from './dto/update-calendar-event-status.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 

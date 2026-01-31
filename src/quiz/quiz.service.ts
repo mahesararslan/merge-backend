@@ -16,6 +16,8 @@ import { QueryQuizAttemptsDto } from './dto/query-quiz-attempts.dto';
 import { QuizSubmissionStatus } from './enums/quiz-submission-status.enum';
 import { InstructorQuizStatus } from './enums/instructor-quiz-status.enum';
 import { NotificationService } from '../notification/notification.service';
+import { CalendarService } from '../calendar/calendar.service';
+import { TaskCategory } from '../entities/calendar-event.entity';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 
@@ -37,6 +39,7 @@ export class QuizService {
     @InjectQueue('quizzes')
     private quizQueue: Queue,
     private notificationService: NotificationService,
+    private calendarService: CalendarService,
   ) {}
 
   async create(createQuizDto: CreateQuizDto, userId: string) {
@@ -120,6 +123,15 @@ export class QuizService {
     // Send notifications for the created quiz
     await this.notificationService.createQuizNotifications(savedQuiz);
 
+    // Add to calendar for all room members
+    if (savedQuiz.deadline) {
+      await this.calendarService.createForRoomMembers({
+        title: savedQuiz.title,
+        description: '',
+        deadline: savedQuiz.deadline.toISOString(),
+        taskCategory: TaskCategory.QUIZ,
+      }, savedQuiz.room.id);
+    }
     return this.findOne(savedQuiz.id, userId);
   }
 

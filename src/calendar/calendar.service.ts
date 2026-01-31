@@ -3,6 +3,7 @@ import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nest
 import { InjectRepository } from '@nestjs/typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Repository } from 'typeorm';
+import { RoomMember } from '../entities/room-member.entity';
 import { Queue } from 'bull';
 import { CalendarEvent, TaskStatus } from '../entities/calendar-event.entity';
 import { User } from '../entities/user.entity';
@@ -18,9 +19,41 @@ export class CalendarService {
 		private calendarEventRepository: Repository<CalendarEvent>,
 		@InjectRepository(User)
 		private userRepository: Repository<User>,
+		@InjectRepository(RoomMember)
+		private roomMemberRepository: Repository<RoomMember>,
 		@InjectQueue('calendar')
 		private calendarQueue: Queue,
 	) {}
+
+	async createForRoomMembers(createCalendarEventDto: CreateCalendarEventDto, roomId: string) {
+		// Find all room members
+		const members = await this.roomMemberRepository.find({ where: { room: { id: roomId } }, relations: ['user'] });
+		const results: CalendarEvent[] = [];
+		for (const member of members) {
+			const user = member.user;
+			if (!user) continue;
+			const event = this.calendarEventRepository.create({
+				...createCalendarEventDto,
+				owner: user,
+				deadline: new Date(createCalendarEventDto.deadline),
+				taskStatus: TaskStatus.PENDING,
+			});
+			const saved = await this.calendarEventRepository.save(event);
+			// Schedule notifications
+			const now = Date.now();
+			const deadline = new Date(saved.deadline).getTime();
+			const diff24h = deadline - now - 24 * 60 * 60 * 1000;
+			const diff5m = deadline - now - 5 * 60 * 1000;
+			if (diff24h > 0) {
+				await this.calendarQueue.add('notify-24hr-before-deadline', { eventId: saved.id }, { delay: diff24h, removeOnComplete: true });
+			}
+			if (diff5m > 0) {
+				await this.calendarQueue.add('notify-5min-before-deadline', { eventId: saved.id }, { delay: diff5m, removeOnComplete: true });
+			}
+			results.push(saved);
+		}
+		return results;
+	}
 
 	async create(createCalendarEventDto: CreateCalendarEventDto, userId: string) {
 		const user = await this.userRepository.findOne({ where: { id: userId } });

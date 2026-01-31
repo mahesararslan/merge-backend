@@ -11,6 +11,7 @@ import { RoomMember } from '../entities/room-member.entity';
 import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 import { NotificationModule } from '../notification/notification.module';
 import { QueueModule } from '../queue/queue.module';
+import { CalendarModule } from '../calendar/calendar.module';
 
 
 @Module({
@@ -24,6 +25,7 @@ import { QueueModule } from '../queue/queue.module';
     ]),
     NotificationModule,
     QueueModule,
+    CalendarModule,
   ],
   controllers: [AssignmentController],
   providers: [AssignmentService, AssignmentProcessor, RoomRoleGuard],

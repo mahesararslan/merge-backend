@@ -45,7 +45,6 @@ export class RoomController {
 
   // Get my rooms with filters
   @Get('my-rooms')
-  // @UseInterceptors(CacheInterceptor)
   getMyRooms(@Query() queryDto: QueryUserRoomsDto, @Req() req) {
     return this.roomService.findUserRoomsWithFilter(queryDto, req.user.id);
   }
@@ -53,14 +52,12 @@ export class RoomController {
   // Get all public rooms with pagination and search
   @Public()
   @Get()
-  // @UseInterceptors(CacheInterceptor)
   findAll(@Query() queryDto: QueryAllRoomsDto) {
     return this.roomService.findAll(queryDto);
   }
 
   // get rooms for user feed which are according to his interests(tags)
   @Get('feed')
-  // @UseInterceptors(CacheInterceptor)
   getUserFeed(@Req() req, @Query() queryDto: QueryUserFeedDto) {
     return this.roomService.getUserFeed(req.user.id, queryDto);
   }
@@ -88,7 +85,6 @@ export class RoomController {
 
   // Get specific room by ID
   @Get(':roomId')
-  // @UseInterceptors(CacheInterceptor)
   findOne(@Param('roomId', ParseUUIDPipe) roomId: string) {
     return this.roomService.findOne(roomId);
   }
@@ -125,7 +121,6 @@ export class RoomController {
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   @Get(':roomId/members')
-  // @UseInterceptors(CacheInterceptor)
   getRoomMembers(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
     return this.roomService.getRoomMembers(roomId, req.user.id);
   }
@@ -188,7 +183,6 @@ export class RoomController {
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   @Get(':roomId/course-content')
-  // @UseInterceptors(CacheInterceptor)
   getRoomContent(
     @Param('roomId', ParseUUIDPipe) roomId: string,
     @Query() queryDto: QueryRoomContentDto,

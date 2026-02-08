@@ -120,7 +120,7 @@ export class FileService {
       const savedFile = await this.fileRepository.save(fileEntity);
       return this.formatFileResponse(savedFile);
     } catch (error) {
-      if (error.response) {
+      if (error) {
         throw new BadRequestException(`Upload service error: ${error.response.data?.message || 'Unknown error'}`);
       }
       throw new BadRequestException('Failed to upload file to external service');

@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { File, FileType } from '../entities/file.entity';
+import { File, FileType, FileProcessingStatus } from '../entities/file.entity';
 import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { Folder } from '../entities/folder.entity';
@@ -16,6 +16,8 @@ import axios from 'axios';
 
 @Injectable()
 export class FileService {
+  private readonly logger = new Logger(FileService.name);
+
   constructor(
     @InjectRepository(File)
     private fileRepository: Repository<File>,
@@ -32,6 +34,138 @@ export class FileService {
     private configService: ConfigService,
     private s3Service: S3Service,
   ) {}
+
+  /**
+   * Trigger embedding generation for a file using the FastAPI AI service.
+   * This method calls the AI service asynchronously and polls for completion.
+   */
+  private async triggerEmbeddingGeneration(
+    fileId: string,
+    s3Url: string,
+    roomId: string,
+    mimeType: string,
+  ): Promise<void> {
+    try {
+      const aiServiceUrl = this.configService.get('AI_SERVICE_URL') || 'http://localhost:8001';
+      
+      // Determine document type from MIME type
+      let documentType = 'pdf';
+      if (mimeType.includes('pdf')) {
+        documentType = 'pdf';
+      } else if (mimeType.includes('word') || mimeType.includes('document')) {
+        documentType = 'docx';
+      } else if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) {
+        documentType = 'pptx';
+      } else if (mimeType.includes('text/plain')) {
+        documentType = 'txt';
+      }
+
+      this.logger.log(`Triggering embedding generation for file ${fileId} from ${s3Url}`);
+
+      // Call FastAPI to start processing
+      const response = await axios.post(
+        `${aiServiceUrl}/ingest/ingest-from-s3`,
+        {
+          s3_url: s3Url,
+          room_id: roomId,
+          file_id: fileId,
+          document_type: documentType,
+        },
+        {
+          timeout: 10000, // 10 second timeout for the initial request
+        }
+      );
+
+      if (response.data.success) {
+        this.logger.log(`Embedding generation started for file ${fileId}`);
+        
+        // Start polling for status in the background (don't await)
+        this.pollProcessingStatus(fileId, aiServiceUrl).catch(error => {
+          this.logger.error(`Error polling status for file ${fileId}: ${error.message}`);
+        });
+      } else {
+        throw new Error('AI service returned unsuccessful response');
+      }
+    } catch (error) {
+      this.logger.error(`Failed to trigger embedding generation for file ${fileId}: ${error.message}`);
+      
+      // Update file status to failed
+      await this.fileRepository.update(fileId, {
+        processingStatus: FileProcessingStatus.FAILED,
+        processingError: `Failed to trigger embedding generation: ${error.message}`,
+        processedAt: new Date(),
+      });
+    }
+  }
+
+  /**
+   * Poll the AI service for processing status and update the database.
+   */
+  private async pollProcessingStatus(fileId: string, aiServiceUrl: string): Promise<void> {
+    const maxAttempts = 60; // Poll for up to 5 minutes (60 * 5 seconds)
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+        attempts++;
+
+        const statusResponse = await axios.get(
+          `${aiServiceUrl}/ingest/ingest-status/${fileId}`,
+          { timeout: 5000 }
+        );
+
+        const status = statusResponse.data.status;
+        
+        if (status === 'completed') {
+          this.logger.log(`Embedding generation completed for file ${fileId}`);
+          
+          await this.fileRepository.update(fileId, {
+            processingStatus: FileProcessingStatus.COMPLETED,
+            chunksCreated: statusResponse.data.chunks_created,
+            processingError: null,
+            processedAt: new Date(),
+          });
+          
+          return; // Exit polling
+        } else if (status === 'failed') {
+          this.logger.error(`Embedding generation failed for file ${fileId}: ${statusResponse.data.error}`);
+          
+          await this.fileRepository.update(fileId, {
+            processingStatus: FileProcessingStatus.FAILED,
+            processingError: statusResponse.data.error,
+            processedAt: new Date(),
+          });
+          
+          return; // Exit polling
+        }
+        
+        // Status is 'pending' or 'processing', continue polling
+        this.logger.debug(`File ${fileId} status: ${status}, continuing to poll...`);
+        
+      } catch (error) {
+        this.logger.error(`Error polling status for file ${fileId}: ${error.message}`);
+        
+        // Only fail if we've tried multiple times
+        if (attempts >= 3) {
+          await this.fileRepository.update(fileId, {
+            processingStatus: FileProcessingStatus.FAILED,
+            processingError: `Status polling failed: ${error.message}`,
+            processedAt: new Date(),
+          });
+          return;
+        }
+      }
+    }
+
+    // Polling timed out
+    this.logger.warn(`Polling timed out for file ${fileId} after ${maxAttempts} attempts`);
+    await this.fileRepository.update(fileId, {
+      processingStatus: FileProcessingStatus.FAILED,
+      processingError: 'Processing timeout - please retry',
+      processedAt: new Date(),
+    });
+  }
 
   async uploadFile(
     file: any,
@@ -291,6 +425,12 @@ export class FileService {
     // Determine file type based on MIME type
     const fileType = this.determineFileType(contentType);
 
+    // Determine if this file should have embeddings generated
+    const shouldGenerateEmbeddings = room && this.isDocumentTypeSupported(contentType);
+    const initialProcessingStatus = shouldGenerateEmbeddings 
+      ? FileProcessingStatus.PROCESSING 
+      : FileProcessingStatus.PENDING;
+
     // Create file record
     const fileEntity = this.fileRepository.create({
       originalName,
@@ -299,13 +439,46 @@ export class FileService {
       mimeType: contentType,
       type: fileType,
       size,
+      processingStatus: initialProcessingStatus,
+      chunksCreated: null,
+      processingError: null,
+      processedAt: null,
     });
     fileEntity.uploader = user;
     fileEntity.room = room;
     fileEntity.folder = folder;
 
     const savedFile = await this.fileRepository.save(fileEntity);
+
+    // Trigger embedding generation for room files (don't await - run in background)
+    if (shouldGenerateEmbeddings && room) {
+      this.triggerEmbeddingGeneration(
+        savedFile.id,
+        fileUrl,
+        room.id,
+        contentType,
+      ).catch(error => {
+        this.logger.error(`Background embedding generation failed for file ${savedFile.id}: ${error.message}`);
+      });
+    }
+
     return this.formatFileResponse(savedFile);
+  }
+
+  /**
+   * Check if the content type is supported for embedding generation.
+   */
+  private isDocumentTypeSupported(contentType: string): boolean {
+    const supportedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/msword', // .doc
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+      'application/vnd.ms-powerpoint', // .ppt
+      'text/plain', // .txt
+    ];
+    
+    return supportedTypes.some(type => contentType.includes(type));
   }
 
   async findAll(

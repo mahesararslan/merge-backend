@@ -21,6 +21,13 @@ export enum FileType {
   OTHER = 'other',
 }
 
+export enum FileProcessingStatus {
+  PENDING = 'pending',           // Just uploaded, not processed yet
+  PROCESSING = 'processing',     // Embeddings being generated
+  COMPLETED = 'completed',       // Successfully processed
+  FAILED = 'failed',            // Processing failed
+}
+
 @Entity('files')
 @Index(['uploader', 'folder'])
 @Index(['room', 'folder'])
@@ -57,6 +64,22 @@ export class File {
 
   @ManyToOne(() => Folder, folder => folder.files, { nullable: true })
   folder: Folder | null;
+
+  @Column({
+    type: 'enum',
+    enum: FileProcessingStatus,
+    default: FileProcessingStatus.PENDING,
+  })
+  processingStatus: FileProcessingStatus;
+
+  @Column({ type: 'int', nullable: true })
+  chunksCreated: number | null; // Number of embeddings created
+
+  @Column({ type: 'text', nullable: true })
+  processingError: string | null; // Error message if failed
+
+  @Column({ type: 'timestamp', nullable: true })
+  processedAt: Date | null; // When embedding generation completed
 
   @CreateDateColumn()
   createdAt: Date;

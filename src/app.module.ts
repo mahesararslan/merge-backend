@@ -25,6 +25,7 @@ import { NotificationModule } from './notification/notification.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { QueueModule } from './queue/queue.module';
 import { CalendarModule } from './calendar/calendar.module';
+import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { CalendarModule } from './calendar/calendar.module';
     AnnouncementModule,
     NotificationModule,
     CalendarModule,
+    AiAssistantModule,
   ],
   controllers: [AppController],
   providers: [

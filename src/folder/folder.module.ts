@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FolderService } from './folder.service';
 import { FolderController } from './folder.controller';
@@ -8,6 +8,7 @@ import { Room } from '../entities/room.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { Note } from '../entities/note.entity';
 import { File } from '../entities/file.entity';
+import { FileModule } from '../file/file.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { File } from '../entities/file.entity';
       Note,
       File,
     ]),
+    forwardRef(() => FileModule),
   ],
   controllers: [FolderController],
   providers: [FolderService],

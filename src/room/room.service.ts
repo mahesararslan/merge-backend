@@ -1507,7 +1507,7 @@ export class RoomService {
 
         await this.fileService.deleteFile(fileId, userId);
         deletedFilesCount++;
-      } catch (error) {
+      } catch (error: any) {
         errors.push({ 
           id: fileId, 
           type: 'file', 
@@ -1540,7 +1540,7 @@ export class RoomService {
         deletedSubfoldersCount += deleteResult.deletedItemsCount.subfolders;
         deletedNotesCount += deleteResult.deletedItemsCount.notes;
         deletedFilesCount += deleteResult.deletedItemsCount.files;
-      } catch (error) {
+      } catch (error: any) {
         errors.push({ 
           id: folderId, 
           type: 'folder', 

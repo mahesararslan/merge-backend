@@ -603,6 +603,27 @@ export class FileService {
       throw new NotFoundException(`File with ID ${id} not found`);
     }
 
+    // Delete embeddings from AI service if file was successfully processed
+    if (file.processingStatus === FileProcessingStatus.COMPLETED && file.chunksCreated && file.chunksCreated > 0) {
+      try {
+        const aiServiceUrl = this.configService.get('AI_SERVICE_URL') || 'http://localhost:8001';
+        
+        this.logger.log(`Deleting embeddings for file ${id} from AI service`);
+        
+        await axios.delete(`${aiServiceUrl}/ingest/${id}`, {
+          timeout: 10000, // 10 second timeout
+        });
+        
+        this.logger.log(`Successfully deleted ${file.chunksCreated} embeddings for file ${id}`);
+      } catch (error: any) {
+        // Log error but don't fail the deletion - embeddings can be cleaned up later
+        this.logger.error(
+          `Failed to delete embeddings for file ${id}: ${error.message}`,
+          error.stack,
+        );
+      }
+    }
+
     // Delete file record (S3 file remains for potential recovery)
     await this.fileRepository.remove(file);
   }

@@ -3,9 +3,9 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Body,
   Param,
-  Query,
   Req,
   UseGuards,
   HttpCode,
@@ -14,8 +14,13 @@ import {
 } from '@nestjs/common';
 import { AiAssistantService } from './ai-assistant.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
-import { QueryAiDto } from './dto/query-ai.dto';
-import { GetChatHistoryDto } from './dto/get-chat-history.dto';
+import {
+  CreateConversationDto,
+  SendMessageDto,
+  ConversationResponseDto,
+  MessageResponseDto,
+  ConversationWithMessagesDto,
+} from './dto';
 
 @Controller('ai-assistant')
 @UseGuards(JwtAuthGuard)
@@ -23,47 +28,81 @@ export class AiAssistantController {
   constructor(private readonly aiAssistantService: AiAssistantService) {}
 
   /**
-   * Query the AI assistant with a question
-   * POST /ai-assistant/query
+   * Create a new conversation
+   * POST /ai-assistant/conversations
    */
-  @Post('query')
-  @HttpCode(HttpStatus.OK)
-  async query(@Body() queryDto: QueryAiDto, @Req() req) {
-    return this.aiAssistantService.queryAi(queryDto, req.user.id);
+  @Post('conversations')
+  @HttpCode(HttpStatus.CREATED)
+  async createConversation(
+    @Body() createDto: CreateConversationDto,
+    @Req() req,
+  ): Promise<ConversationResponseDto> {
+    return this.aiAssistantService.createConversation(createDto, req.user.id);
   }
 
   /**
-   * Get user's chat history
-   * GET /ai-assistant/history
+   * Get all conversations for the user
+   * GET /ai-assistant/conversations
    */
-  @Get('history')
-  async getChatHistory(@Query() queryDto: GetChatHistoryDto, @Req() req) {
-    return this.aiAssistantService.getChatHistory(req.user.id, queryDto);
+  @Get('conversations')
+  async getConversations(@Req() req): Promise<ConversationResponseDto[]> {
+    return this.aiAssistantService.getConversations(req.user.id);
   }
 
   /**
-   * Get a specific chat message
-   * GET /ai-assistant/history/:id
+   * Get a specific conversation with all messages
+   * GET /ai-assistant/conversations/:id
    */
-  @Get('history/:id')
-  async getChatMessage(
+  @Get('conversations/:id')
+  async getConversation(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req,
-  ) {
-    return this.aiAssistantService.getChatMessage(id, req.user.id);
+  ): Promise<ConversationWithMessagesDto> {
+    return this.aiAssistantService.getConversation(id, req.user.id);
   }
 
   /**
-   * Delete a chat message
-   * DELETE /ai-assistant/history/:id
+   * Update conversation title
+   * PATCH /ai-assistant/conversations/:id/title
    */
-  @Delete('history/:id')
+  @Patch('conversations/:id/title')
+  async updateConversationTitle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('title') title: string,
+    @Req() req,
+  ): Promise<ConversationResponseDto> {
+    return this.aiAssistantService.updateConversationTitle(
+      id,
+      title,
+      req.user.id,
+    );
+  }
+
+  /**
+   * Delete a conversation
+   * DELETE /ai-assistant/conversations/:id
+   */
+  @Delete('conversations/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteChatMessage(
+  async deleteConversation(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req,
-  ) {
-    return this.aiAssistantService.deleteChatMessage(id, req.user.id);
+  ): Promise<void> {
+    return this.aiAssistantService.deleteConversation(id, req.user.id);
+  }
+
+  /**
+   * Send a message in a conversation and get AI response
+   * POST /ai-assistant/conversations/:id/messages
+   */
+  @Post('conversations/:id/messages')
+  @HttpCode(HttpStatus.OK)
+  async sendMessage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() messageDto: SendMessageDto,
+    @Req() req,
+  ): Promise<MessageResponseDto> {
+    return this.aiAssistantService.sendMessage(id, messageDto, req.user.id);
   }
 }
 

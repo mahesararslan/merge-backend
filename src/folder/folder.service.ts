@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Folder, FolderType } from '../entities/folder.entity';
@@ -11,6 +11,7 @@ import { CreateRoomFolderDto } from './dto/create-room-folder.dto';
 import { CreateNotesFolderDto } from './dto/create-notes-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
 import { QueryFolderDto } from './dto/query-folder.dto';
+import { FileService } from '../file/file.service';
 
 @Injectable()
 export class FolderService {
@@ -27,6 +28,8 @@ export class FolderService {
     private fileRepository: Repository<File>,
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
+    @Inject(forwardRef(() => FileService))
+    private fileService: FileService,
   ) {}
 
   async createRoomFolder(createFolderDto: CreateRoomFolderDto, userId: string): Promise<any> {
@@ -387,7 +390,7 @@ export class FolderService {
     }
 
     // Recursively delete all contents
-    const deletedItemsCount = await this.recursivelyDeleteFolderContents(folder);
+    const deletedItemsCount = await this.recursivelyDeleteFolderContents(folder, userId);
 
     // Delete the folder itself
     await this.folderRepository.remove(folder);
@@ -554,7 +557,7 @@ export class FolderService {
     return false;
   }
 
-  private async recursivelyDeleteFolderContents(folder: Folder): Promise<{
+  private async recursivelyDeleteFolderContents(folder: Folder, userId: string): Promise<{
     subfolders: number;
     notes: number;
     files: number;
@@ -571,7 +574,7 @@ export class FolderService {
 
     // Recursively delete each subfolder
     for (const subfolder of subfolders) {
-      const subfolderStats = await this.recursivelyDeleteFolderContents(subfolder);
+      const subfolderStats = await this.recursivelyDeleteFolderContents(subfolder, userId);
       deletedSubfolders += subfolderStats.subfolders;
       deletedNotes += subfolderStats.notes;
       deletedFiles += subfolderStats.files;
@@ -591,15 +594,14 @@ export class FolderService {
       deletedNotes += 1;
     }
 
-    // Delete all files in this folder
+    // Delete all files in this folder using FileService (which also deletes embeddings)
     const files = await this.fileRepository.find({
       where: { folder: { id: folder.id } },
     });
 
     for (const file of files) {
-      // Note: This only deletes the database record
-      // The actual S3 file remains for potential recovery/cleanup
-      await this.fileRepository.remove(file);
+      // Use FileService to delete file (also deletes embeddings from AI service)
+      await this.fileService.deleteFile(file.id, userId);
       deletedFiles += 1;
     }
 

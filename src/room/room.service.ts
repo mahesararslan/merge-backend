@@ -331,26 +331,6 @@ export class RoomService {
     };
   }
 
-  // Helper method to get user's room IDs (created + joined)
-  private async getUserRoomIds(userId: string): Promise<string[]> {
-    const [createdRooms, joinedRoomMembers] = await Promise.all([
-      this.roomRepository.find({
-        where: { admin: { id: userId } },
-        select: ['id'],
-      }),
-      this.roomMemberRepository.find({
-        where: { user: { id: userId } },
-        relations: ['room'],
-        select: ['room'],
-      }),
-    ]);
-
-    const createdRoomIds = createdRooms.map((room) => room.id);
-    const joinedRoomIds = joinedRoomMembers.map((member) => member.room.id);
-
-    return [...new Set([...createdRoomIds, ...joinedRoomIds])];
-  }
-
   // Helper method to get room member count
   private async getRoomMemberCount(roomId: string): Promise<number> {
     return this.roomMemberRepository.count({
@@ -1144,6 +1124,29 @@ export class RoomService {
     }
 
     return queryBuilder.getCount();
+  }
+
+  /**
+   * Get all room IDs for a user (both created and joined)
+   */
+  async getUserRoomIds(userId: string): Promise<string[]> {
+    // Get created room IDs
+    const createdRooms = await this.roomRepository.find({
+      where: { admin: { id: userId } },
+      select: ['id'],
+    });
+
+    // Get joined room IDs
+    const joinedRoomMembers = await this.roomMemberRepository.find({
+      where: { user: { id: userId } },
+      relations: ['room'],
+    });
+
+    const createdRoomIds = createdRooms.map((room) => room.id);
+    const joinedRoomIds = joinedRoomMembers.map((member) => member.room.id);
+
+    // Return unique room IDs
+    return [...new Set([...createdRoomIds, ...joinedRoomIds])];
   }
 
   private async checkUserRoomAccess(userId: string, roomId: string): Promise<boolean> {

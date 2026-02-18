@@ -6,8 +6,7 @@ import axios from 'axios';
 import { AiChatMessage, MessageRole } from '../entities/ai-chat-message.entity';
 import { AiConversation } from '../entities/ai-conversation.entity';
 import { User } from '../entities/user.entity';
-import { Room } from '../entities/room.entity';
-import { RoomMember } from '../entities/room-member.entity';
+import { RoomService } from '../room/room.service';
 import {
   CreateConversationDto,
   SendMessageDto,
@@ -28,11 +27,8 @@ export class AiAssistantService {
     private messageRepository: Repository<AiChatMessage>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
-    @InjectRepository(Room)
-    private roomRepository: Repository<Room>,
-    @InjectRepository(RoomMember)
-    private roomMemberRepository: Repository<RoomMember>,
     private configService: ConfigService,
+    private roomService: RoomService,
   ) {
     this.aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
   }
@@ -52,12 +48,8 @@ export class AiAssistantService {
       throw new NotFoundException('User not found');
     }
 
-    // Validate user has access to all rooms
-    await this.validateUserRoomAccess(userId, createDto.roomIds);
-
     const conversation = this.conversationRepository.create({
       user,
-      roomIds: createDto.roomIds,
       title: createDto.title || 'New Conversation',
     });
 
@@ -84,8 +76,36 @@ export class AiAssistantService {
       throw new NotFoundException('Conversation not found');
     }
 
-    // Validate room access
-    await this.validateUserRoomAccess(userId, conversation.roomIds);
+    // Get user's current room IDs (dynamically fetched)
+    const userRoomIds = await this.roomService.getUserRoomIds(userId);
+
+    if (userRoomIds.length === 0) {
+      throw new BadRequestException('You must be part of at least one room to query the AI assistant');
+    }g
+
+    //  Handle attachment processing (only on first message with attachment)
+    let attachmentContext: string | null = null;
+    let hasVectorAttachment = false;
+    
+    if (messageDto.attachmentS3Url && messageDto.attachmentType && !conversation.attachmentUrl) {
+      this.logger.log(
+        `Processing attachment: type=${messageDto.attachmentType}, size=${messageDto.attachmentFileSize || 'unknown'}`
+      );
+
+      // This is the first message with an attachment for this conversation
+      conversation.attachmentUrl = messageDto.attachmentS3Url;
+      conversation.attachmentType = messageDto.attachmentType;
+      conversation.attachmentOriginalName = messageDto.attachmentOriginalName || 'Untitled';
+
+      // Wait for FastAPI response to determine flow and update conversation
+      // (will be done after the AI response)
+    } else if (conversation.attachmentContext) {
+      // Subsequent message in conversation with Flow 1 attachment
+      attachmentContext = conversation.attachmentContext;
+    } else if (conversation.attachmentInVectorDB) {
+      // Subsequent message with Flow 2 attachment
+      hasVectorAttachment = true;
+    }
 
     // Save user message
     const userMessage = this.messageRepository.create({
@@ -123,23 +143,40 @@ export class AiAssistantService {
 
     try {
       this.logger.log(
-        `Querying AI for conversation ${conversationId} with ${conversationHistory.length} history messages`,
+        `Querying AI for conversation ${conversationId} with ${conversationHistory.length} history messages`
       );
 
-      // Call FastAPI with conversation context
+      // Build request payload
+      const requestPayload: any = {
+        query: messageDto.message,
+        user_id: userId,
+        room_ids: userRoomIds,
+        context_file_id: messageDto.contextFileId || null,
+        top_k: messageDto.topK || 5,
+        conversation_history: conversationHistory,
+        conversation_summary: conversation.summary || null,
+        conversation_id: conversationId,
+      };
+
+      // Add attachment fields if present
+      if (messageDto.attachmentS3Url && !conversation.attachmentUrl) {
+        // First message with attachment - send to FastAPI for processing
+        requestPayload.attachment_s3_url = messageDto.attachmentS3Url;
+        requestPayload.attachment_type = messageDto.attachmentType;
+      } else if (attachmentContext) {
+        // Flow 1: Direct injection
+        requestPayload.attachment_context = attachmentContext;
+      } else if (hasVectorAttachment) {
+        // Flow 2: Vector retrieval
+        requestPayload.has_vector_attachment = true;
+      }
+
+      // Call FastAPI with conversation context and attachments
       const response = await axios.post(
         `${this.aiServiceUrl}/query`,
+        requestPayload,
         {
-          query: messageDto.message,
-          user_id: userId,
-          room_ids: conversation.roomIds,
-          context_file_id: messageDto.contextFileId || null,
-          top_k: messageDto.topK || 5,
-          conversation_history: conversationHistory,
-          conversation_summary: conversation.summary || null,
-        },
-        {
-          timeout: 60000, // 60 second timeout for longer conversations
+          timeout: 60000, // 60 second timeout
           headers: {
             'Content-Type': 'application/json',
           },
@@ -147,6 +184,25 @@ export class AiAssistantService {
       );
 
       const aiResponse = response.data;
+
+      // Update conversation with attachment processing results (if first message with attachment)
+      if (messageDto.attachmentS3Url && !conversation.attachmentInVectorDB && !conversation.attachmentContext) {
+        if (aiResponse.flow_used === 'direct_injection') {
+          // Flow 1: Store extracted content in conversation
+          conversation.attachmentContext = aiResponse.extracted_content || null;
+          this.logger.log(
+            `Flow 1: Attachment content stored (${aiResponse.extracted_content_length || 0} chars)`
+          );
+        } else if (aiResponse.flow_used === 'vector_storage') {
+          // Flow 2: Mark as stored in vector DB
+          conversation.attachmentInVectorDB = true;
+          this.logger.log(
+            `Flow 2: Attachment stored in vector DB (${aiResponse.chunks_created_for_attachment || 0} chunks)`
+          );
+        }
+
+        await this.conversationRepository.save(conversation);
+      }
 
       // Save assistant message
       const assistantMessage = this.messageRepository.create({
@@ -171,7 +227,7 @@ export class AiAssistantService {
       this.checkAndTriggerSummarization(conversationId);
 
       return this.formatMessageResponse(savedAssistantMessage);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`AI query failed: ${error.message}`, error.stack);
 
       if (error.response) {
@@ -250,6 +306,30 @@ export class AiAssistantService {
       throw new NotFoundException('Conversation not found');
     }
 
+    // Cleanup attachment vectors if conversation used Flow 2
+    if (conversation.attachmentInVectorDB) {
+      try {
+        this.logger.log(
+          `Deleting attachment vectors for conversation ${conversationId}`
+        );
+        
+        await axios.delete(
+          `${this.aiServiceUrl}/vectors/conversation/${conversationId}`,
+          { timeout: 10000 }
+        );
+
+        this.logger.log(
+          `Successfully deleted attachment vectors for conversation ${conversationId}`
+        );
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to delete attachment vectors for conversation ${conversationId}: ${error.message}`,
+          error.stack
+        );
+        // Don't fail deletion if vector cleanup fails
+      }
+    }
+
     await this.conversationRepository.remove(conversation);
   }
 
@@ -297,7 +377,7 @@ export class AiAssistantService {
           );
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Failed to check summarization: ${error.message}`);
     }
   }
@@ -356,42 +436,11 @@ export class AiAssistantService {
       this.logger.log(
         `Successfully summarized conversation ${conversationId}`,
       );
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to summarize conversation ${conversationId}: ${error.message}`,
       );
       throw error;
-    }
-  }
-
-  /**
-   * Validate that user has access to all requested rooms
-   */
-  private async validateUserRoomAccess(
-    userId: string,
-    roomIds: string[],
-  ): Promise<void> {
-    for (const roomId of roomIds) {
-      const room = await this.roomRepository.findOne({
-        where: { id: roomId },
-      });
-
-      if (!room) {
-        throw new NotFoundException(`Room ${roomId} not found`);
-      }
-
-      const membership = await this.roomMemberRepository.findOne({
-        where: {
-          room: { id: roomId },
-          user: { id: userId },
-        },
-      });
-
-      if (!membership) {
-        throw new BadRequestException(
-          `You do not have access to room ${roomId}`,
-        );
-      }
     }
   }
 
@@ -416,11 +465,20 @@ export class AiAssistantService {
     const response: ConversationResponseDto = {
       id: conversation.id,
       title: conversation.title,
-      roomIds: conversation.roomIds,
       summary: conversation.summary,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     };
+
+    // Add attachment metadata if present
+    if (conversation.attachmentUrl) {
+      response.attachment = {
+        url: conversation.attachmentUrl,
+        type: conversation.attachmentType!,
+        originalName: conversation.attachmentOriginalName!,
+        inVectorDB: conversation.attachmentInVectorDB,
+      };
+    }
 
     if (includeStats) {
       const messageCount = await this.messageRepository.count({

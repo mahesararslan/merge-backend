@@ -6,8 +6,7 @@ import { AiAssistantController } from './ai-assistant.controller';
 import { AiConversation } from '../entities/ai-conversation.entity';
 import { AiChatMessage } from '../entities/ai-chat-message.entity';
 import { User } from '../entities/user.entity';
-import { Room } from '../entities/room.entity';
-import { RoomMember } from '../entities/room-member.entity';
+import { RoomModule } from '../room/room.module';
 
 @Module({
   imports: [
@@ -15,10 +14,9 @@ import { RoomMember } from '../entities/room-member.entity';
       AiConversation,
       AiChatMessage,
       User,
-      Room,
-      RoomMember,
     ]),
     ConfigModule,
+    RoomModule,
   ],
   controllers: [AiAssistantController],
   providers: [AiAssistantService],

@@ -163,6 +163,7 @@ export class AiAssistantService {
         // First message with attachment - send to FastAPI for processing
         requestPayload.attachment_s3_url = messageDto.attachmentS3Url;
         requestPayload.attachment_type = messageDto.attachmentType;
+        requestPayload.attachment_file_size = messageDto.attachmentFileSize || 0;
       } else if (attachmentContext) {
         // Flow 1: Direct injection
         requestPayload.attachment_context = attachmentContext;

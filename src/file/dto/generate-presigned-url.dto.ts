@@ -11,7 +11,7 @@ export class GeneratePresignedUrlDto {
 
   @IsNumber()
   @Min(1)
-  @Max(50 * 1024 * 1024) // 50MB max
+  @Max(15 * 1024 * 1024) // 15 MB max
   size: number;
 
   @IsOptional()

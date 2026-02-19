@@ -81,7 +81,7 @@ export class AiAssistantService {
 
     if (userRoomIds.length === 0) {
       throw new BadRequestException('You must be part of at least one room to query the AI assistant');
-    }g
+    }
 
     //  Handle attachment processing (only on first message with attachment)
     let attachmentContext: string | null = null;

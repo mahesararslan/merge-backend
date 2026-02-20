@@ -86,14 +86,17 @@ export class AiAssistantService {
     //  Handle attachment processing (only on first message with attachment)
     let attachmentContext: string | null = null;
     let hasVectorAttachment = false;
+    let isFirstAttachment = false; // Flag to track if this is first message with attachment
     
     if (messageDto.attachmentS3Url && messageDto.attachmentType && !conversation.attachmentUrl) {
       this.logger.log(
-        `Processing attachment: type=${messageDto.attachmentType}, size=${messageDto.attachmentFileSize || 'unknown'}`
+        `[ATTACHMENT] First message with attachment - type=${messageDto.attachmentType}, ` +
+        `size=${messageDto.attachmentFileSize || 'unknown'} bytes, S3=${messageDto.attachmentS3Url.substring(0, 50)}...`
       );
 
       // This is the first message with an attachment for this conversation
-      conversation.attachmentUrl = messageDto.attachmentS3Url;
+      isFirstAttachment = true;
+     conversation.attachmentUrl = messageDto.attachmentS3Url;
       conversation.attachmentType = messageDto.attachmentType;
       conversation.attachmentOriginalName = messageDto.attachmentOriginalName || 'Untitled';
 
@@ -102,9 +105,15 @@ export class AiAssistantService {
     } else if (conversation.attachmentContext) {
       // Subsequent message in conversation with Flow 1 attachment
       attachmentContext = conversation.attachmentContext;
+      this.logger.log(
+        `[ATTACHMENT] Using stored Flow 1 attachment context (${attachmentContext.length} chars)`
+      );
     } else if (conversation.attachmentInVectorDB) {
       // Subsequent message with Flow 2 attachment
       hasVectorAttachment = true;
+      this.logger.log(
+        `[ATTACHMENT] Using Flow 2 vector storage for conversation ${conversationId}`
+      );
     }
 
     // Save user message
@@ -159,17 +168,27 @@ export class AiAssistantService {
       };
 
       // Add attachment fields if present
-      if (messageDto.attachmentS3Url && !conversation.attachmentUrl) {
-        // First message with attachment - send to FastAPI for processing
+        if (isFirstAttachment) {
+      // First message with attachment - send to FastAPI for processing
         requestPayload.attachment_s3_url = messageDto.attachmentS3Url;
         requestPayload.attachment_type = messageDto.attachmentType;
         requestPayload.attachment_file_size = messageDto.attachmentFileSize || 0;
+        this.logger.log(
+          `[ATTACHMENT] Sending to FastAPI for flow decision - ` +
+          `size=${messageDto.attachmentFileSize} bytes, type=${messageDto.attachmentType}`
+        );
       } else if (attachmentContext) {
         // Flow 1: Direct injection
         requestPayload.attachment_context = attachmentContext;
+        this.logger.log(
+          `[ATTACHMENT] Including Flow 1 context in request (${attachmentContext.length} chars)`
+        );
       } else if (hasVectorAttachment) {
         // Flow 2: Vector retrieval
         requestPayload.has_vector_attachment = true;
+        this.logger.log(
+          `[ATTACHMENT] Flagging Flow 2 vector retrieval for conversation ${conversationId}`
+        );
       }
 
       // Call FastAPI with conversation context and attachments
@@ -187,22 +206,38 @@ export class AiAssistantService {
       const aiResponse = response.data;
 
       // Update conversation with attachment processing results (if first message with attachment)
-      if (messageDto.attachmentS3Url && !conversation.attachmentInVectorDB && !conversation.attachmentContext) {
+        if (isFirstAttachment) {
+      this.logger.log(
+          `[ATTACHMENT] FastAPI response - flow_used=${aiResponse.flow_used || 'NONE'}, ` +
+          `extracted_content_length=${aiResponse.extracted_content_length || 0}`
+        );
+        
         if (aiResponse.flow_used === 'direct_injection') {
           // Flow 1: Store extracted content in conversation
           conversation.attachmentContext = aiResponse.extracted_content || null;
           this.logger.log(
-            `Flow 1: Attachment content stored (${aiResponse.extracted_content_length || 0} chars)`
+            `[ATTACHMENT] ✓ Flow 1 Complete: Stored attachmentContext (${aiResponse.extracted_content_length || 0} chars)`
+          );
+          this.logger.debug(
+            `[ATTACHMENT] attachmentContext preview: ${(aiResponse.extracted_content || '').substring(0, 200)}...`
           );
         } else if (aiResponse.flow_used === 'vector_storage') {
           // Flow 2: Mark as stored in vector DB
           conversation.attachmentInVectorDB = true;
           this.logger.log(
-            `Flow 2: Attachment stored in vector DB (${aiResponse.chunks_created_for_attachment || 0} chunks)`
+            `[ATTACHMENT] ✓ Flow 2 Complete: Stored in vector DB (${aiResponse.chunks_created_for_attachment || 0} chunks)`
+          );
+        } else {
+          this.logger.warn(
+            `[ATTACHMENT] ⚠ No flow_used in response! Check AI service processing.`
           );
         }
 
         await this.conversationRepository.save(conversation);
+        this.logger.log(
+          `[ATTACHMENT] Conversation ${conversationId} saved with attachment metadata`
+        );
+
       }
 
       // Save assistant message
@@ -298,40 +333,59 @@ export class AiAssistantService {
   async deleteConversation(
     conversationId: string,
     userId: string,
-  ): Promise<void> {
+  ): Promise<{ message: string; vectorsDeleted: boolean }> {
+
     const conversation = await this.conversationRepository.findOne({
       where: { id: conversationId, user: { id: userId } },
+      relations: ['user'], // Explicitly load user relation for verification
     });
 
     if (!conversation) {
-      throw new NotFoundException('Conversation not found');
+      throw new NotFoundException('Conversation not found or you do not have access to it');
     }
+
+    let vectorsDeleted = false;
+    let vectorCleanupWarning = '';
 
     // Cleanup attachment vectors if conversation used Flow 2
     if (conversation.attachmentInVectorDB) {
-      try {
-        this.logger.log(
-          `Deleting attachment vectors for conversation ${conversationId}`
-        );
+      try {     
         
-        await axios.delete(
+        const vectorResponse = await axios.delete(
           `${this.aiServiceUrl}/vectors/conversation/${conversationId}`,
           { timeout: 10000 }
         );
 
+        const deletedCount = vectorResponse.data?.deleted_count || 0;
+        vectorsDeleted = true;
+        
         this.logger.log(
-          `Successfully deleted attachment vectors for conversation ${conversationId}`
+          `✓ Successfully deleted ${deletedCount} attachment vector(s) for conversation ${conversationId}`
         );
       } catch (error: any) {
         this.logger.error(
           `Failed to delete attachment vectors for conversation ${conversationId}: ${error.message}`,
           error.stack
         );
+        vectorCleanupWarning = ' (Note: Attachment vectors cleanup failed but will be removed by TTL expiration)';
         // Don't fail deletion if vector cleanup fails
       }
     }
 
-    await this.conversationRepository.remove(conversation);
+    try {
+      await this.conversationRepository.remove(conversation);
+      
+      const successMessage = `Conversation "${conversation.title}" deleted successfully${vectorCleanupWarning}`;
+
+      return {
+        message: successMessage,
+        vectorsDeleted,
+      };
+    } catch (error: any) {
+      throw new BadRequestException(
+        `Failed to delete conversation from database: ${error.message}`
+      );
+    }
   }
 
   /**

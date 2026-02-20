@@ -83,13 +83,17 @@ export class AiAssistantController {
    * DELETE /ai-assistant/conversations/:id
    */
   @Delete('conversations/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   async deleteConversation(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req,
-  ): Promise<{ success: boolean; message: string }> {
-    await this.aiAssistantService.deleteConversation(id, req.user.id);
-    return { success: true, message: 'Conversation deleted successfully.' };
+  ): Promise<{ success: boolean; message: string; vectorsDeleted?: boolean }> {
+    const result = await this.aiAssistantService.deleteConversation(id, req.user.id);
+    return {
+      success: true,
+      message: result.message,
+      vectorsDeleted: result.vectorsDeleted,
+    };
   }
 
   /**

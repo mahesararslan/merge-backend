@@ -20,6 +20,7 @@ import {
 export class AiAssistantService {
   private readonly logger = new Logger(AiAssistantService.name);
   private readonly aiServiceUrl: string;
+  private readonly aiServiceApiKey: string;
 
   constructor(
     @InjectRepository(AiConversation)
@@ -32,6 +33,11 @@ export class AiAssistantService {
     private roomService: RoomService,
   ) {
     this.aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
+    this.aiServiceApiKey = this.configService.getOrThrow<string>('AI_SERVICE_API_KEY');
+    
+    if (!this.aiServiceApiKey) {
+      throw new Error('AI_SERVICE_API_KEY environment variable is required');
+    }
   }
 
   /**
@@ -241,6 +247,7 @@ export class AiAssistantService {
           timeout: 60000, // 60 second timeout
           headers: {
             'Content-Type': 'application/json',
+            'X-API-Key': this.aiServiceApiKey,
           },
         },
       );
@@ -395,7 +402,12 @@ export class AiAssistantService {
         
         const vectorResponse = await axios.delete(
           `${this.aiServiceUrl}/vectors/conversation/${conversationId}`,
-          { timeout: 10000 }
+          { 
+            timeout: 10000,
+            headers: {
+              'X-API-Key': this.aiServiceApiKey,
+            },
+          }
         );
 
         const deletedCount = vectorResponse.data?.deleted_count || 0;
@@ -594,6 +606,7 @@ export class AiAssistantService {
           timeout: 120000, // 2 minute timeout for streaming
           headers: {
             'Content-Type': 'application/json',
+            'X-API-Key': this.aiServiceApiKey,
           },
         },
       );
@@ -811,6 +824,7 @@ export class AiAssistantService {
           timeout: 30000,
           headers: {
             'Content-Type': 'application/json',
+            'X-API-Key': this.aiServiceApiKey,
           },
         },
       );

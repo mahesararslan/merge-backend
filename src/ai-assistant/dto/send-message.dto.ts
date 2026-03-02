@@ -1,8 +1,12 @@
-import { IsString, IsOptional, IsInt, Min, Max, MinLength, MaxLength, IsEnum, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, MinLength, MaxLength, IsEnum, IsNumber, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AttachmentType } from '../../entities/ai-conversation.entity';
 
 export class SendMessageDto {
+  @IsOptional()
+  @IsUUID()
+  conversationId?: string;
+
   @IsString()
   @MinLength(1)
   @MaxLength(2000)

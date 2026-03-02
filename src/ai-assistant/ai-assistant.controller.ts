@@ -7,11 +7,13 @@ import {
   Body,
   Param,
   Req,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { AiAssistantService } from './ai-assistant.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 import {
@@ -97,17 +99,31 @@ export class AiAssistantController {
   }
 
   /**
-   * Send a message in a conversation and get AI response
-   * POST /ai-assistant/conversations/:id/messages
+   * Send a query message with streaming response (with optional conversationId)
+   * POST /ai-assistant/query
+   * - If conversationId provided in body: continues existing conversation
+   * - If conversationId not provided: auto-creates new conversation
    */
-  @Post('conversations/:id/messages')
-  @HttpCode(HttpStatus.OK)
-  async sendMessage(
-    @Param('id', ParseUUIDPipe) id: string,
+  @Post('query')
+  async sendQuery(
     @Body() messageDto: SendMessageDto,
     @Req() req,
-  ): Promise<MessageResponseDto> {
-    return this.aiAssistantService.sendMessage(id, messageDto, req.user.id);
+    @Res() res: Response,
+  ): Promise<void> {
+    // Set SSE headers and prevent buffering
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    res.setHeader('Content-Encoding', 'none'); // Disable compression
+    res.setHeader('Transfer-Encoding', 'chunked'); // Enable chunked transfer
+    res.flushHeaders();
+
+    await this.aiAssistantService.sendQueryStreamWithAutoConversation(
+      messageDto,
+      req.user.id,
+      res,
+    );
   }
 }
 

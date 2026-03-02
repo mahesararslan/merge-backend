@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { Response } from 'express';
 import { AiChatMessage, MessageRole } from '../entities/ai-chat-message.entity';
 import { AiConversation } from '../entities/ai-conversation.entity';
 import { User } from '../entities/user.entity';
@@ -56,6 +57,47 @@ export class AiAssistantService {
     const saved = await this.conversationRepository.save(conversation);
 
     return this.formatConversationResponse(saved);
+  }
+
+  /**
+   * Send a query with optional conversation - creates conversation if not provided (streaming)
+   */
+  async sendQueryStreamWithAutoConversation(
+    messageDto: SendMessageDto,
+    userId: string,
+    res: Response,
+  ): Promise<void> {
+    let conversationId = messageDto.conversationId;
+
+    // If no conversationId provided, create a new conversation
+    if (!conversationId) {
+      const conversation = await this.createConversation({}, userId);
+      conversationId = conversation.id;
+      
+      this.logger.log(
+        `Auto-created conversation ${conversationId} for streaming query: "${messageDto.message.substring(0, 50)}..."`
+      );
+    } else {
+      this.logger.log(
+        `Using existing conversation ${conversationId} for streaming query: "${messageDto.message.substring(0, 50)}..."`
+      );
+    }
+
+    // Send initial event with conversation_id (important for new conversations)
+    res.write(`event: conversation\ndata: ${JSON.stringify({ conversation_id: conversationId })}\n\n`);
+    
+    // Flush immediately to establish stream
+    if (typeof (res as any).flush === 'function') {
+      (res as any).flush();
+    }
+
+    // Send message to the conversation (streaming)
+    await this.sendMessageStream(
+      conversationId,
+      messageDto,
+      userId,
+      res,
+    );
   }
 
   /**
@@ -408,6 +450,298 @@ export class AiAssistantService {
     const updated = await this.conversationRepository.save(conversation);
 
     return this.formatConversationResponse(updated);
+  }
+
+  /**
+   * Send a message in a conversation and stream AI response from FastAPI
+   */
+  async sendMessageStream(
+    conversationId: string,
+    messageDto: SendMessageDto,
+    userId: string,
+    res: Response,
+  ): Promise<void> {
+    // Get conversation and validate access
+    const conversation = await this.conversationRepository.findOne({
+      where: { id: conversationId, user: { id: userId } },
+      relations: ['user'],
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    // Get user's current room IDs (dynamically fetched)
+    const userRoomIds = await this.roomService.getUserRoomIds(userId);
+
+    if (userRoomIds.length === 0) {
+      throw new BadRequestException('You must be part of at least one room to query the AI assistant');
+    }
+
+    // Handle attachment processing (only on first message with attachment)
+    let attachmentContext: string | null = null;
+    let hasVectorAttachment = false;
+    let isFirstAttachment = false;
+    
+    if (messageDto.attachmentS3Url && messageDto.attachmentType && !conversation.attachmentUrl) {
+      this.logger.log(
+        `[ATTACHMENT] First message with attachment - type=${messageDto.attachmentType}, ` +
+        `size=${messageDto.attachmentFileSize || 'unknown'} bytes, S3=${messageDto.attachmentS3Url.substring(0, 50)}...`
+      );
+
+      isFirstAttachment = true;
+      conversation.attachmentUrl = messageDto.attachmentS3Url;
+      conversation.attachmentType = messageDto.attachmentType;
+      conversation.attachmentOriginalName = messageDto.attachmentOriginalName || 'Untitled';
+    } else if (conversation.attachmentContext) {
+      attachmentContext = conversation.attachmentContext;
+      this.logger.log(
+        `[ATTACHMENT] Using stored Flow 1 attachment context (${attachmentContext.length} chars)`
+      );
+    } else if (conversation.attachmentInVectorDB) {
+      hasVectorAttachment = true;
+      this.logger.log(
+        `[ATTACHMENT] Using Flow 2 vector storage for conversation ${conversationId}`
+      );
+    }
+
+    // Save user message
+    const userMessage = this.messageRepository.create({
+      conversation,
+      user: conversation.user,
+      role: MessageRole.USER,
+      content: messageDto.message,
+      contextFileId: messageDto.contextFileId || null,
+    });
+
+    await this.messageRepository.save(userMessage);
+
+    // Auto-generate title from first message if still default
+    if (conversation.title === 'New Conversation') {
+      conversation.title = this.generateConversationTitle(messageDto.message);
+      await this.conversationRepository.save(conversation);
+      
+      // Send title update event to frontend
+      res.write(`event: title\ndata: ${JSON.stringify({ title: conversation.title })}\n\n`);
+      
+      // Flush immediately
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
+      
+      this.logger.log(`Auto-generated title: "${conversation.title}"`);
+    }
+
+    // Fetch recent conversation history (last 8 messages, ascending order)
+    const recentMessagesDesc = await this.messageRepository.find({
+      where: { conversation: { id: conversationId } },
+      order: { createdAt: 'DESC' },
+      take: 8,
+    });
+
+    const recentMessages = recentMessagesDesc.reverse();
+
+    // Build conversation history for FastAPI
+    const conversationHistory = recentMessages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    try {
+      this.logger.log(
+        `Streaming query for conversation ${conversationId} with ${conversationHistory.length} history messages`
+      );
+
+      // Build request payload
+      const requestPayload: any = {
+        query: messageDto.message,
+        user_id: userId,
+        room_ids: userRoomIds,
+        context_file_id: messageDto.contextFileId || null,
+        top_k: messageDto.topK || 5,
+        conversation_history: conversationHistory,
+        conversation_summary: conversation.summary || null,
+        conversation_id: conversationId,
+      };
+
+      // Add attachment fields if present
+      if (isFirstAttachment) {
+        requestPayload.attachment_s3_url = messageDto.attachmentS3Url;
+        requestPayload.attachment_type = messageDto.attachmentType;
+        requestPayload.attachment_file_size = messageDto.attachmentFileSize || 0;
+        this.logger.log(
+          `[ATTACHMENT] Sending to FastAPI for flow decision - ` +
+          `size=${messageDto.attachmentFileSize} bytes, type=${messageDto.attachmentType}`
+        );
+      } else if (attachmentContext) {
+        requestPayload.attachment_context = attachmentContext;
+        this.logger.log(
+          `[ATTACHMENT] Including Flow 1 context in request (${attachmentContext.length} chars)`
+        );
+      } else if (hasVectorAttachment) {
+        requestPayload.has_vector_attachment = true;
+        this.logger.log(
+          `[ATTACHMENT] Flagging Flow 2 vector retrieval for conversation ${conversationId}`
+        );
+      }
+
+      // Call FastAPI streaming endpoint
+      const response = await axios.post(
+        `${this.aiServiceUrl}/query/stream`,
+        requestPayload,
+        {
+          responseType: 'stream', // Stream the response
+          timeout: 120000, // 2 minute timeout for streaming
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      // Variables to collect response data for database
+      let fullAnswer = '';
+      let sources: any[] = [];
+      let chunksRetrieved = 0;
+      let processingTimeMs = 0;
+      let attachmentFlowUsed: string | null = null;
+      let extractedContent: string | null = null;
+      let extractedContentLength: number | null = null;
+      let chunksCreatedForAttachment: number | null = null;
+
+      // Pipe FastAPI stream to frontend with data collection
+      response.data.on('data', (chunk: Buffer) => {
+        const lines = chunk.toString().split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const eventData = JSON.parse(line.substring(6));
+              
+              // Collect answer chunks
+              if (eventData.text) {
+                fullAnswer += eventData.text;
+              }
+              
+              // Collect metadata from complete event
+              if (eventData.sources) {
+                sources = eventData.sources;
+              }
+              if (eventData.chunks_retrieved !== undefined) {
+                chunksRetrieved = eventData.chunks_retrieved;
+              }
+              if (eventData.processing_time_ms !== undefined) {
+                processingTimeMs = eventData.processing_time_ms;
+              }
+              if (eventData.flow_used) {
+                attachmentFlowUsed = eventData.flow_used;
+              }
+              if (eventData.extracted_content) {
+                extractedContent = eventData.extracted_content;
+              }
+              if (eventData.extracted_content_length) {
+                extractedContentLength = eventData.extracted_content_length;
+              }
+              if (eventData.chunks_created_for_attachment) {
+                chunksCreatedForAttachment = eventData.chunks_created_for_attachment;
+              }
+            } catch (e) {
+              // Ignore parse errors for partial chunks
+            }
+          }
+        }
+        
+        // Forward chunk to frontend and flush immediately
+        res.write(chunk);
+        
+        // Explicitly flush the response to prevent buffering
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
+      });
+
+      response.data.on('end', async () => {
+        this.logger.log('Stream completed, saving to database');
+        
+        try {
+          // Update conversation with attachment processing results
+          if (isFirstAttachment && attachmentFlowUsed) {
+            this.logger.log(
+              `[ATTACHMENT] FastAPI response - flow_used=${attachmentFlowUsed}, ` +
+              `extracted_content_length=${extractedContentLength || 0}`
+            );
+            
+            if (attachmentFlowUsed === 'direct_injection') {
+              conversation.attachmentContext = extractedContent || null;
+              this.logger.log(
+                `[ATTACHMENT] ✓ Flow 1 Complete: Stored attachmentContext (${extractedContentLength || 0} chars)`
+              );
+            } else if (attachmentFlowUsed === 'vector_storage') {
+              conversation.attachmentInVectorDB = true;
+              this.logger.log(
+                `[ATTACHMENT] ✓ Flow 2 Complete: Stored in vector DB (${chunksCreatedForAttachment || 0} chunks)`
+              );
+            }
+
+            await this.conversationRepository.save(conversation);
+            this.logger.log(
+              `[ATTACHMENT] Conversation ${conversationId} saved with attachment metadata`
+            );
+          }
+
+          // Save assistant message to database
+          const assistantMessage = this.messageRepository.create({
+            conversation,
+            user: conversation.user,
+            role: MessageRole.ASSISTANT,
+            content: fullAnswer,
+            contextFileId: messageDto.contextFileId || null,
+            sources: sources,
+            chunksRetrieved: chunksRetrieved,
+            processingTimeMs: processingTimeMs,
+          });
+
+          await this.messageRepository.save(assistantMessage);
+
+          // Update conversation timestamp
+          await this.conversationRepository.update(conversationId, {
+            updatedAt: new Date(),
+          });
+
+          // Check if we need to trigger summarization (non-blocking)
+          this.checkAndTriggerSummarization(conversationId);
+
+          this.logger.log('Assistant message saved to database');
+        } catch (error: any) {
+          this.logger.error(`Failed to save message: ${error.message}`, error.stack);
+        }
+
+        res.end();
+      });
+
+      response.data.on('error', (error: any) => {
+        this.logger.error(`Stream error: ${error.message}`, error.stack);
+        res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
+        res.end();
+      });
+
+    } catch (error: any) {
+      this.logger.error(`AI streaming query failed: ${error.message}`, error.stack);
+
+      if (error.response) {
+        const status = error.response.status;
+        const detail = error.response.data?.detail || 'AI service error';
+
+        if (status === 404) {
+          throw new NotFoundException(`AI service error: ${detail}`);
+        } else if (status >= 400 && status < 500) {
+          throw new BadRequestException(`AI service error: ${detail}`);
+        }
+      }
+
+      throw new BadRequestException(
+        `Failed to query AI assistant: ${error.message}`,
+      );
+    }
   }
 
   /**

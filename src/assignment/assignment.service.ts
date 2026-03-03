@@ -45,7 +45,7 @@ export class AssignmentService {
     private calendarService: CalendarService,
   ) {
     // Test queue connection on startup
-    this.assignmentQueue.isReady().catch((error) => {
+    this.assignmentQueue.isReady().catch((error: any) => {
       this.logger.error(`Queue not ready: ${error.message}`);
     });
   }
@@ -111,7 +111,7 @@ export class AssignmentService {
             },
           );
           this.logger.log(`Scheduled 24hr-before-due notification for assignment ${saved.id}`);
-        } catch (error) {
+        } catch (error: any) {
           this.logger.error(`Failed to schedule 24hr-before-due notification: ${error.message}`);
         }
       }
@@ -158,12 +158,18 @@ export class AssignmentService {
     });
 
     const saved = await this.assignmentRepository.save(assignment);
-    this.logger.log(`Scheduled assignment saved: ${saved.id}`);
+    this.logger.log(`Scheduled assignment saved: ${saved.id} (isPublished: ${saved.isPublished})`);
 
     // Schedule the assignment with BullMQ
     const delay = scheduledDate.getTime() - Date.now();
+    this.logger.log(`Calculated delay: ${delay}ms (${Math.round(delay/1000/60)} minutes) - Scheduled for: ${scheduledDate.toISOString()}`);
+    
+    if (delay <= 0) {
+      this.logger.error(`Invalid delay calculated: ${delay}ms - Assignment will publish immediately!`);
+      throw new BadRequestException('Scheduled time must be in the future');
+    }
+    
     try {
-      this.logger.log(`Adding to queue with delay: ${delay}ms`);
       const job = await this.assignmentQueue.add(
         'publish-scheduled', 
         { assignmentId: saved.id },
@@ -177,10 +183,12 @@ export class AssignmentService {
           removeOnComplete: true,
         },
       );
-      this.logger.log(`Scheduled assignment ${saved.id} for ${scheduledDate.toISOString()}, job ID: ${job.id}`);
-    } catch (error) {
-      this.logger.error(`Failed to add assignment to queue: ${error.message}`, error.stack);
-      // Continue anyway - the assignment is saved and can be manually published
+      this.logger.log(`✅ Successfully queued assignment ${saved.id} - Job ID: ${job.id}, Will publish at: ${new Date(Date.now() + delay).toISOString()}`);
+    } catch (error: any) {
+      this.logger.error(`❌ Failed to queue assignment: ${error.message}`, error.stack);
+      // Rollback: delete the assignment since scheduling failed
+      await this.assignmentRepository.remove(saved);
+      throw new BadRequestException(`Failed to schedule assignment: ${error.message}. Please check Redis connection.`);
     }
 
     // Schedule 24hr-before-due notification if endAt is at least 24h in future
@@ -203,7 +211,7 @@ export class AssignmentService {
             },
           );
           this.logger.log(`Scheduled 24hr-before-due notification for assignment ${saved.id}`);
-        } catch (error) {
+        } catch (error: any) {
           this.logger.error(`Failed to schedule 24hr-before-due notification: ${error.message}`);
         }
       }
@@ -919,7 +927,7 @@ export class AssignmentService {
         attempt.score = attemptScore.score;
         const updated = await this.attemptRepository.save(attempt);
         results.push(this.formatAttemptResponse(updated));
-      } catch (error) {
+      } catch (error: any) {
         errors.push({
           attemptId: attemptScore.attemptId,
           error: error.message,

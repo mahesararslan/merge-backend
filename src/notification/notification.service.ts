@@ -87,7 +87,7 @@ export class NotificationService {
                 },
               }),
             );
-          } catch (error) {
+          } catch (error: any) {
             // Log but don't throw - WebSocket notification is not critical
             this.logger.error(`Failed to send WebSocket notification to user ${notification.user.id}: ${error.message}`);
           }
@@ -109,10 +109,10 @@ export class NotificationService {
           authorId: announcement.author.id,
           actionUrl: `/rooms/${announcement.room.id}/announcements/${announcement.id}`,
         },
-      ).catch((error) => {
+      ).catch((error: any) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
       });
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Error creating announcement notifications: ${error.message}`, error.stack);
       throw error;
     }
@@ -177,7 +177,7 @@ export class NotificationService {
                 },
               }),
             );
-          } catch (error) {
+          } catch (error: any) {
             // Log but don't throw - WebSocket notification is not critical
             this.logger.error(`Failed to send WebSocket notification to user ${notification.user.id}: ${error.message}`);
           }
@@ -199,10 +199,10 @@ export class NotificationService {
           authorId: assignment.author.id,
           actionUrl: `/rooms/${assignment.room.id}/assignments/${assignment.id}`,
         },
-      ).catch((error) => {
+      ).catch((error: any) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
       });
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Error creating assignment notifications: ${error.message}`, error.stack);
       throw error;
     }
@@ -267,7 +267,7 @@ export class NotificationService {
                 },
               }),
             );
-          } catch (error) {
+          } catch (error: any) {
             // Log but don't throw - WebSocket notification is not critical
             this.logger.error(`Failed to send WebSocket notification to user ${notification.user.id}: ${error.message}`);
           }
@@ -289,10 +289,10 @@ export class NotificationService {
           authorId: quiz.author.id,
           actionUrl: `/rooms/${quiz.room.id}/quizzes/${quiz.id}`,
         },
-      ).catch((error) => {
+      ).catch((error: any) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
       });
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Error creating quiz notifications: ${error.message}`, error.stack);
       throw error;
     }
@@ -346,7 +346,7 @@ export class NotificationService {
         },
         { pushSent: true },
       );
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Error sending FCM notifications: ${error.message}`, error.stack);
     }
   }

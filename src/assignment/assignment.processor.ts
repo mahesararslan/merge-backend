@@ -25,7 +25,14 @@ export class AssignmentProcessor {
   @Process('publish-scheduled')
   async handleScheduledPublish(job: Job) {
     const { assignmentId } = job.data;
-    this.logger.log(`Processing scheduled assignment: ${assignmentId}`);
+    const jobCreatedAt = new Date(job.timestamp);
+    const now = new Date();
+    const actualDelay = now.getTime() - jobCreatedAt.getTime();
+    
+    this.logger.log(`⏰ Processing scheduled assignment: ${assignmentId}`);
+    this.logger.log(`📅 Job created at: ${jobCreatedAt.toISOString()}`);
+    this.logger.log(`📅 Processing at: ${now.toISOString()}`);
+    this.logger.log(`⏱️  Actual delay: ${Math.round(actualDelay/1000/60)} minutes (${actualDelay}ms)`);
 
     try {
       const assignment = await this.assignmentRepository.findOne({

@@ -1,5 +1,5 @@
-import { Process, Processor, InjectQueue } from '@nestjs/bull';
-import { Job, Queue } from 'bull';
+import { Process, Processor } from '@nestjs/bull';
+import { Job } from 'bull';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -18,8 +18,6 @@ export class AssignmentProcessor {
     private assignmentRepository: Repository<Assignment>,
     private notificationService: NotificationService,
     private calendarService: CalendarService,
-    @InjectQueue('assignments')
-    private assignmentQueue: Queue,
   ) {
     this.logger.log('AssignmentProcessor initialized and ready to process jobs');
   }
@@ -27,14 +25,7 @@ export class AssignmentProcessor {
   @Process('publish-scheduled')
   async handleScheduledPublish(job: Job) {
     const { assignmentId } = job.data;
-    const jobCreatedAt = new Date(job.timestamp);
-    const now = new Date();
-    const actualDelay = now.getTime() - jobCreatedAt.getTime();
-    
-    this.logger.log(`⏰ Processing scheduled assignment: ${assignmentId}`);
-    this.logger.log(`📅 Job created at: ${jobCreatedAt.toISOString()}`);
-    this.logger.log(`📅 Processing at: ${now.toISOString()}`);
-    this.logger.log(`⏱️  Actual delay: ${Math.round(actualDelay/1000/60)} minutes (${actualDelay}ms)`);
+    this.logger.log(`Processing scheduled assignment: ${assignmentId}`);
 
     try {
       const assignment = await this.assignmentRepository.findOne({
@@ -69,36 +60,9 @@ export class AssignmentProcessor {
         }, assignment.room.id);
       }
 
-      // Schedule 24hr-before-due notification if endAt is at least 24h in future
-      // This runs when assignment is published (either immediately or via scheduled task)
-      if (assignment.endAt) {
-        const endAt = new Date(assignment.endAt).getTime();
-        const now = Date.now();
-        const diff = endAt - now;
-        const twentyFourHours = 24 * 60 * 60 * 1000;
-        if (diff > twentyFourHours) {
-          const delay = endAt - twentyFourHours - now;
-          try {
-            await this.assignmentQueue.add(
-              'notify-24hr-before-due',
-              { assignmentId: assignment.id },
-              {
-                delay,
-                removeOnComplete: true,
-                attempts: 3,
-                backoff: { type: 'exponential', delay: 2000 },
-              },
-            );
-            this.logger.log(`Scheduled 24hr-before-due notification for assignment ${assignment.id}`);
-          } catch (error: any) {
-            this.logger.error(`Failed to schedule 24hr-before-due notification: ${error.message}`);
-          }
-        }
-      }
-
       this.logger.log(`Successfully published assignment: ${assignmentId}`);
     } catch (error: any) {
-      this.logger.error(`Error processing scheduled assignment: ${error?.message || 'Unknown error'}`, error?.stack);
+      this.logger.error(`Error processing scheduled assignment: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -119,7 +83,7 @@ export class AssignmentProcessor {
       await this.notificationService.sendAssignmentDueSoonNotification(assignmentId);
       this.logger.log(`Sent 24hr-before-due notification for assignment: ${assignmentId}`);
     } catch (error: any) {
-      this.logger.error(`Error processing scheduled assignment: ${error?.message || 'Unknown error'}`, error?.stack);
+      this.logger.error(`Error processing scheduled assignment: ${error.message}`, error.stack);
       throw error;
     }
   }

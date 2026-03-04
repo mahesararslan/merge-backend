@@ -158,18 +158,12 @@ export class AssignmentService {
     });
 
     const saved = await this.assignmentRepository.save(assignment);
-    this.logger.log(`Scheduled assignment saved: ${saved.id} (isPublished: ${saved.isPublished})`);
+    this.logger.log(`Scheduled assignment saved: ${saved.id}`);
 
     // Schedule the assignment with BullMQ
     const delay = scheduledDate.getTime() - Date.now();
-    this.logger.log(`Calculated delay: ${delay}ms (${Math.round(delay/1000/60)} minutes) - Scheduled for: ${scheduledDate.toISOString()}`);
-    
-    if (delay <= 0) {
-      this.logger.error(`Invalid delay calculated: ${delay}ms - Assignment will publish immediately!`);
-      throw new BadRequestException('Scheduled time must be in the future');
-    }
-    
     try {
+      this.logger.log(`Adding to queue with delay: ${delay}ms`);
       const job = await this.assignmentQueue.add(
         'publish-scheduled', 
         { assignmentId: saved.id },
@@ -183,14 +177,37 @@ export class AssignmentService {
           removeOnComplete: true,
         },
       );
-      this.logger.log(`✅ Successfully queued assignment ${saved.id} - Job ID: ${job.id}, Will publish at: ${new Date(Date.now() + delay).toISOString()}`);
+      this.logger.log(`Scheduled assignment ${saved.id} for ${scheduledDate.toISOString()}, job ID: ${job.id}`);
     } catch (error: any) {
-      this.logger.error(`❌ Failed to queue assignment: ${error.message}`, error.stack);
-      // Rollback: delete the assignment since scheduling failed
-      await this.assignmentRepository.remove(saved);
-      throw new BadRequestException(`Failed to schedule assignment: ${error.message}. Please check Redis connection.`);
+      this.logger.error(`Failed to add assignment to queue: ${error.message}`, error.stack);
+      // Continue anyway - the assignment is saved and can be manually published
     }
 
+    // Schedule 24hr-before-due notification if endAt is at least 24h in future
+    if (saved.endAt) {
+      const endAt = new Date(saved.endAt).getTime();
+      const now = Date.now();
+      const diff = endAt - now;
+      const twentyFourHours = 24 * 60 * 60 * 1000;
+      if (diff > twentyFourHours) {
+        const delay = endAt - twentyFourHours - now;
+        try {
+          await this.assignmentQueue.add(
+            'notify-24hr-before-due',
+            { assignmentId: saved.id },
+            {
+              delay,
+              removeOnComplete: true,
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 2000 },
+            },
+          );
+          this.logger.log(`Scheduled 24hr-before-due notification for assignment ${saved.id}`);
+        } catch (error: any) {
+          this.logger.error(`Failed to schedule 24hr-before-due notification: ${error.message}`);
+        }
+      }
+    }
     return this.formatAssignmentResponse(saved);
   }
 

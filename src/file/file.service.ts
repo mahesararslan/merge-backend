@@ -17,6 +17,7 @@ import axios from 'axios';
 @Injectable()
 export class FileService {
   private readonly logger = new Logger(FileService.name);
+  private readonly aiServiceApiKey: string;
 
   constructor(
     @InjectRepository(File)
@@ -33,7 +34,13 @@ export class FileService {
     private assignmentRepository: Repository<Assignment>,
     private configService: ConfigService,
     private s3Service: S3Service,
-  ) {}
+  ) {
+    this.aiServiceApiKey = this.configService.get<string>('AI_SERVICE_API_KEY')!;
+    
+    if (!this.aiServiceApiKey) {
+      throw new Error('AI_SERVICE_API_KEY environment variable is required');
+    }
+  }
 
   /**
    * Trigger embedding generation for a file using the FastAPI AI service.
@@ -73,6 +80,9 @@ export class FileService {
         },
         {
           timeout: 10000, // 10 second timeout for the initial request
+          headers: {
+            'X-API-Key': this.aiServiceApiKey,
+          },
         }
       );
 
@@ -112,7 +122,12 @@ export class FileService {
 
         const statusResponse = await axios.get(
           `${aiServiceUrl}/ingest/ingest-status/${fileId}`,
-          { timeout: 5000 }
+          { 
+            timeout: 5000,
+            headers: {
+              'X-API-Key': this.aiServiceApiKey,
+            },
+          }
         );
 
         const status = statusResponse.data.status;
@@ -612,6 +627,9 @@ export class FileService {
         
         await axios.delete(`${aiServiceUrl}/ingest/${id}`, {
           timeout: 10000, // 10 second timeout
+          headers: {
+            'X-API-Key': this.aiServiceApiKey,
+          },
         });
         
         this.logger.log(`Successfully deleted ${file.chunksCreated} embeddings for file ${id}`);

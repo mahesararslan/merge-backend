@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
@@ -30,6 +30,16 @@ export class NotificationService {
 
   async createAnnouncementNotifications(announcement: Announcement): Promise<void> {
     try {
+      // Idempotency check: skip if notifications already exist for this announcement
+      const existingCount = await this.notificationRepository
+        .createQueryBuilder('n')
+        .where("n.metadata LIKE :pattern", { pattern: `%"announcementId":"${announcement.id}"%` })
+        .getCount();
+      if (existingCount > 0) {
+        this.logger.log(`Notifications already exist for announcement ${announcement.id}, skipping`);
+        return;
+      }
+
       // Get all members of the room
       const roomMembers = await this.roomMemberRepository.find({
         where: { room: { id: announcement.room.id } },
@@ -66,10 +76,9 @@ export class NotificationService {
       }
 
       // Save all notifications
-      await this.notificationRepository.save(notifications);
-      this.logger.log(`Created ${notifications.length} notifications for announcement ${announcement.id}`);
-
-      
+      const savedNotifications = await this.notificationRepository.save(notifications);
+      const savedIds = savedNotifications.map((n) => n.id);
+      this.logger.log(`Created ${savedNotifications.length} notifications for announcement ${announcement.id}`);
 
       // Send FCM notifications asynchronously
       this.sendFcmNotifications(
@@ -85,6 +94,7 @@ export class NotificationService {
           authorId: announcement.author.id,
           actionUrl: `/rooms/${announcement.room.id}/announcements/${announcement.id}`,
         },
+        savedIds,
       ).catch((error: any) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
       });
@@ -96,6 +106,16 @@ export class NotificationService {
 
   async createAssignmentNotifications(assignment: Assignment): Promise<void> {
     try {
+      // Idempotency check: skip if notifications already exist for this assignment
+      const existingCount = await this.notificationRepository
+        .createQueryBuilder('n')
+        .where("n.metadata LIKE :pattern", { pattern: `%"assignmentId":"${assignment.id}"%` })
+        .getCount();
+      if (existingCount > 0) {
+        this.logger.log(`Notifications already exist for assignment ${assignment.id}, skipping`);
+        return;
+      }
+
       // Get all members of the room
       const roomMembers = await this.roomMemberRepository.find({
         where: { room: { id: assignment.room.id } },
@@ -132,10 +152,9 @@ export class NotificationService {
       }
 
       // Save all notifications
-      await this.notificationRepository.save(notifications);
-      this.logger.log(`Created ${notifications.length} notifications for assignment ${assignment.id}`);
-
-      
+      const savedNotifications = await this.notificationRepository.save(notifications);
+      const savedIds = savedNotifications.map((n) => n.id);
+      this.logger.log(`Created ${savedNotifications.length} notifications for assignment ${assignment.id}`);
 
       // Send FCM notifications asynchronously
       this.sendFcmNotifications(
@@ -151,6 +170,7 @@ export class NotificationService {
           authorId: assignment.author.id,
           actionUrl: `/rooms/${assignment.room.id}/assignments/${assignment.id}`,
         },
+        savedIds,
       ).catch((error: any) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
       });
@@ -162,6 +182,16 @@ export class NotificationService {
 
   async createQuizNotifications(quiz: Quiz): Promise<void> {
     try {
+      // Idempotency check: skip if notifications already exist for this quiz
+      const existingCount = await this.notificationRepository
+        .createQueryBuilder('n')
+        .where("n.metadata LIKE :pattern", { pattern: `%"quizId":"${quiz.id}"%` })
+        .getCount();
+      if (existingCount > 0) {
+        this.logger.log(`Notifications already exist for quiz ${quiz.id}, skipping`);
+        return;
+      }
+
       // Get all members of the room
       const roomMembers = await this.roomMemberRepository.find({
         where: { room: { id: quiz.room.id } },
@@ -198,10 +228,9 @@ export class NotificationService {
       }
 
       // Save all notifications
-      await this.notificationRepository.save(notifications);
-      this.logger.log(`Created ${notifications.length} notifications for quiz ${quiz.id}`);
-
-      
+      const savedNotifications = await this.notificationRepository.save(notifications);
+      const savedIds = savedNotifications.map((n) => n.id);
+      this.logger.log(`Created ${savedNotifications.length} notifications for quiz ${quiz.id}`);
 
       // Send FCM notifications asynchronously
       this.sendFcmNotifications(
@@ -217,6 +246,7 @@ export class NotificationService {
           authorId: quiz.author.id,
           actionUrl: `/rooms/${quiz.room.id}/quizzes/${quiz.id}`,
         },
+        savedIds,
       ).catch((error: any) => {
         this.logger.error(`Failed to send FCM notifications: ${error.message}`);
       });
@@ -231,6 +261,7 @@ export class NotificationService {
     roomTitle: string,
     contentTitle: string,
     data: Record<string, string>,
+    notificationIds: string[] = [],
   ): Promise<void> {
     try {
       // Get all FCM tokens for these users
@@ -247,9 +278,12 @@ export class NotificationService {
       const tokens = fcmTokens.map((ft) => ft.token);
 
       // Determine title prefix based on notification type
-      const titlePrefix = 
-        data.type === 'assignment' ? 'New Assignment' : 
-        data.type === 'quiz' ? 'New Quiz' : 
+      const titlePrefix =
+        data.type === 'assignment' ? 'New Assignment' :
+        data.type === 'quiz' ? 'New Quiz' :
+        data.type === 'assignment-due-soon' ? 'Assignment Due Soon' :
+        data.type === 'quiz-due-soon' ? 'Quiz Due Soon' :
+        data.type === 'calendar-reminder' ? 'Calendar Reminder' :
         'New Announcement';
 
       // Send multicast notification
@@ -263,17 +297,23 @@ export class NotificationService {
         `FCM sent: ${result.successCount} success, ${result.failureCount} failures`,
       );
 
-      // Mark notifications as push sent
-      const metadataKey = 
-        data.type === 'assignment' ? 'assignmentId' : 
-        data.type === 'quiz' ? 'quizId' : 
-        'announcementId';
-      await this.notificationRepository.update(
-        {
-          metadata: { [metadataKey]: data[metadataKey] } as any,
-        },
-        { pushSent: true },
-      );
+      // Clean up invalid tokens that FCM rejected
+      if (result.invalidTokens && result.invalidTokens.length > 0) {
+        await this.fcmTokenRepository
+          .createQueryBuilder()
+          .delete()
+          .where('token IN (:...tokens)', { tokens: result.invalidTokens })
+          .execute();
+        this.logger.log(`Deleted ${result.invalidTokens.length} invalid FCM tokens`);
+      }
+
+      // Mark notifications as push sent using reliable ID-based query
+      if (notificationIds.length > 0) {
+        await this.notificationRepository.update(
+          { id: In(notificationIds) },
+          { pushSent: true },
+        );
+      }
     } catch (error: any) {
       this.logger.error(`Error sending FCM notifications: ${error.message}`, error.stack);
     }

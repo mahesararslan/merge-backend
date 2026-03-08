@@ -119,7 +119,10 @@ export class AuthController {
   async googleCallback(@Req() req, @Res() res) {
     const response = await this.authService.login(req.user.id);
     this.setAuthCookies(req, res, response.token, response.refreshToken);
-    res.redirect(`${process.env.FRONTEND_URL}/callback?token=${response.token}&refreshToken=${response.refreshToken}`);
+    const notificationStatus = req.user.notificationStatus || 'default';
+    const newUser = req.user.new_user ?? false;
+    const role = req.user.role ?? 'null';
+    res.redirect(`${process.env.FRONTEND_URL}/callback?token=${response.token}&refreshToken=${response.refreshToken}&notificationStatus=${notificationStatus}&newUser=${newUser}&role=${role}`);
   }
 
   @HttpCode(HttpStatus.OK)

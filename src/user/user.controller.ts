@@ -22,6 +22,7 @@ import { CacheInterceptor } from '@nestjs/cache-manager';
 import { Public } from 'src/auth/decorators/public.decorator';
 import { TagService } from 'src/tag/tag.service';
 import { UserTagsDto } from './dto/user-tags.dto';
+import { SetRoleDto } from './dto/set-role.dto';
 import { QueryUserRoomsDto } from 'src/room/dto/query-user-rooms.dto';
 
 @Controller('user')
@@ -64,6 +65,16 @@ export class UserController {
   @Patch('/tags')
   setUserTags(@Req() req, @Body() userTagsDto: UserTagsDto) {
     return this.userService.setUserTags(req.user.id, userTagsDto.tagNames);
+  }
+
+  @Patch('/role')
+  setUserRole(@Req() req, @Body() setRoleDto: SetRoleDto) {
+    return this.userService.setUserRole(req.user.id, setRoleDto.role);
+  }
+
+  @Patch('/skip-onboarding')
+  skipOnboarding(@Req() req) {
+    return this.userService.skipOnboarding(req.user.id);
   }
 
   @Public()

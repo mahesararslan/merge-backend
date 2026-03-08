@@ -28,6 +28,16 @@ export class AnnouncementProcessor {
     this.logger.log(`Processing scheduled announcement: ${announcementId}`);
 
     try {
+      // Atomic publish: only proceed if we're the one flipping isPublished
+      const updateResult = await this.announcementRepository.update(
+        { id: announcementId, isPublished: false },
+        { isPublished: true },
+      );
+      if (updateResult.affected === 0) {
+        this.logger.warn(`Announcement ${announcementId} already published or not found`);
+        return;
+      }
+
       const announcement = await this.announcementRepository.findOne({
         where: { id: announcementId },
         relations: ['room', 'room.admin', 'author'],
@@ -38,14 +48,6 @@ export class AnnouncementProcessor {
         return;
       }
 
-      if (announcement.isPublished) {
-        this.logger.warn(`Announcement ${announcementId} already published`);
-        return;
-      }
-
-      // Update announcement to published
-      announcement.isPublished = true;
-      await this.announcementRepository.save(announcement);
       // Create notifications and send FCM
       await this.notificationService.createAnnouncementNotifications(announcement);
       this.logger.log(`Successfully published announcement: ${announcementId}`);

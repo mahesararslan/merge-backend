@@ -28,6 +28,16 @@ export class AssignmentProcessor {
     this.logger.log(`Processing scheduled assignment: ${assignmentId}`);
 
     try {
+      // Atomic publish: only proceed if we're the one flipping isPublished
+      const updateResult = await this.assignmentRepository.update(
+        { id: assignmentId, isPublished: false },
+        { isPublished: true },
+      );
+      if (updateResult.affected === 0) {
+        this.logger.warn(`Assignment ${assignmentId} already published or not found`);
+        return;
+      }
+
       const assignment = await this.assignmentRepository.findOne({
         where: { id: assignmentId },
         relations: ['room', 'room.admin', 'author'],
@@ -37,15 +47,6 @@ export class AssignmentProcessor {
         this.logger.error(`Assignment ${assignmentId} not found`);
         return;
       }
-
-      if (assignment.isPublished) {
-        this.logger.warn(`Assignment ${assignmentId} already published`);
-        return;
-      }
-
-      // Update assignment to published
-      assignment.isPublished = true;
-      await this.assignmentRepository.save(assignment);
 
       // Create notifications and send FCM
       await this.notificationService.createAssignmentNotifications(assignment);

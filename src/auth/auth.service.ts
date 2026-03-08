@@ -40,12 +40,19 @@ export class AuthService {
         `${user.firstName} ${user.lastName}` || 'User',
         user.auth?.verificationToken,
       );
-      throw new UnauthorizedException('Please verify your email to login, A link has been sent to your email');
+      throw new UnauthorizedException(
+        'Please verify your email to login, A link has been sent to your email',
+      );
     }
 
     const isPasswordValid = await compare(password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid password');
-    return { id: user.id, email: user.email, twoFactorEnabled: user.auth?.twoFactorEnabled };
+    return {
+      id: user.id,
+      email: user.email,
+      twoFactorEnabled: user.auth?.twoFactorEnabled,
+      notificationStatus: user.notificationStatus,
+    };
   }
 
   async signup(createUserDto: CreateUserDto) {
@@ -55,7 +62,7 @@ export class AuthService {
 
     // Send verification email if not a Google account
     if (!user.googleAccount) {
-      console.log("Reached here to send email");
+      console.log('Reached here to send email');
       await this.mailService.sendVerificationEmail(
         user.email,
         `${user.firstName} ${user.lastName}` || 'User',
@@ -65,26 +72,28 @@ export class AuthService {
 
     return {
       success: true,
-      message: 'User registered successfully. Please check your email to verify your account.',
+      message:
+        'User registered successfully. Please check your email to verify your account.',
     };
   }
 
   async signin(userId: string, twoFactorEnabled: boolean, email: string) {
-    if (twoFactorEnabled) { 
-        return this.sendOTP({ email });
+    if (twoFactorEnabled) {
+      return this.sendOTP({ email });
     }
     return this.login(userId);
   }
 
   async login(userId: string) {
-
     const { accessToken, refreshToken } = await this.generateTokens(userId);
     const hashedRefreshToken = await argon2.hash(refreshToken);
     await this.userService.updateHashedRefreshToken(userId, hashedRefreshToken);
+    const user = await this.userService.findOne(userId);
     return {
       userId,
       token: accessToken,
       refreshToken,
+      notificationStatus: user?.notificationStatus || 'default',
     };
   }
 
@@ -110,19 +119,23 @@ export class AuthService {
   }
 
   async verifyEmail(token: string) {
-      const user = await this.userService.verifyEmail(token);
+    const user = await this.userService.verifyEmail(token);
 
-      // Generate tokens for the verified user
-      const { accessToken, refreshToken } = await this.generateTokens(user.id);
-      const hashedRefreshToken = await argon2.hash(refreshToken);
-      await this.userService.updateHashedRefreshToken(user.id, hashedRefreshToken);
+    // Generate tokens for the verified user
+    const { accessToken, refreshToken } = await this.generateTokens(user.id);
+    const hashedRefreshToken = await argon2.hash(refreshToken);
+    await this.userService.updateHashedRefreshToken(
+      user.id,
+      hashedRefreshToken,
+    );
 
-      return {
-        message: 'Email verified successfully',
-        userId: user.id,
-        token: accessToken,
-        refreshToken: refreshToken,
-      };
+    return {
+      message: 'Email verified successfully',
+      userId: user.id,
+      token: accessToken,
+      refreshToken: refreshToken,
+      notificationStatus: user.notificationStatus || 'default',
+    };
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
@@ -140,7 +153,8 @@ export class AuthService {
 
       return {
         success: true,
-        message: 'Password reset email sent successfully. Please check your email.',
+        message:
+          'Password reset email sent successfully. Please check your email.',
       };
     } catch (error) {
       if (error instanceof NotFoundException) {
@@ -151,15 +165,16 @@ export class AuthService {
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
-      await this.userService.resetPassword(
-        resetPasswordDto.token,
-        resetPasswordDto.newPassword,
-      );
+    await this.userService.resetPassword(
+      resetPasswordDto.token,
+      resetPasswordDto.newPassword,
+    );
 
-      return {
-        success: true,
-        message: 'Password reset successfully. You can now log in with your new password.',
-      };
+    return {
+      success: true,
+      message:
+        'Password reset successfully. You can now log in with your new password.',
+    };
   }
 
   async generateTokens(userId: string) {
@@ -195,13 +210,15 @@ export class AuthService {
   }
 
   async validateRefreshToken(userId: string, refreshToken: string) {
-    const user = await this.userService.getUserwithAuth(userId); 
-    if (!user || !user.auth?.hashedRefreshToken) throw new UnauthorizedException('Acess Denied');
+    const user = await this.userService.getUserwithAuth(userId);
+    if (!user || !user.auth?.hashedRefreshToken)
+      throw new UnauthorizedException('Acess Denied');
     const isRefreshTokenValid = await argon2.verify(
       user.auth.hashedRefreshToken,
       refreshToken,
     );
-    if (!isRefreshTokenValid) throw new UnauthorizedException('Invalid refresh token');
+    if (!isRefreshTokenValid)
+      throw new UnauthorizedException('Invalid refresh token');
     return { id: user.id };
   }
 
@@ -218,18 +235,20 @@ export class AuthService {
 
     const user = await this.userService.findByEmail(email);
     if (!user) {
-        throw new NotFoundException('User with this email does not exist');
+      throw new NotFoundException('User with this email does not exist');
     }
 
     if (!user.auth?.twoFactorEnabled) {
-        throw new BadRequestException('2FA is not enabled for this account');
+      throw new BadRequestException('2FA is not enabled for this account');
     }
 
     // Generate and send new OTP
     const otpCode = await this.userService.setOTPCode(user.id);
 
     if (!otpCode) {
-      throw new BadRequestException('Could not generate OTP code. Please try again.');
+      throw new BadRequestException(
+        'Could not generate OTP code. Please try again.',
+      );
     }
 
     await this.mailService.sendOTPEmail(
@@ -266,7 +285,7 @@ export class AuthService {
     try {
       const payload = await this.jwtService.verifyAsync(token);
       const user = await this.userService.findOne(payload.sub);
-      
+
       if (!user) {
         throw new UnauthorizedException('User not found');
       }

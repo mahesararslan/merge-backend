@@ -41,16 +41,16 @@ export class User {
 
   @Column()
   lastName: string;
-  
-  @Column({ default:true })
-  new_user: boolean
+
+  @Column({ default: true })
+  new_user: boolean;
 
   @Column({
     type: 'enum',
     enum: UserRole,
-    default: UserRole.STUDENT,
+    nullable: true,
   })
-  role: UserRole;
+  role: UserRole | null;
 
   @ManyToMany(() => Tag, (tag) => tag.users, { cascade: true })
   @JoinTable({
@@ -64,6 +64,7 @@ export class User {
   googleAccount: boolean;
 
   @Column({
+    
     type: 'enum',
     enum: NotificationStatus,
     default: NotificationStatus.DEFAULT,

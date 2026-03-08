@@ -12,7 +12,7 @@ import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { StoreFcmTokenDto } from './dto/store-fcm-token.dto';
-import { NotificationStatus, User } from 'src/entities/user.entity';
+import { NotificationStatus, User, UserRole } from 'src/entities/user.entity';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { UpdatePasswordDto } from './dto/update-password.dto';
@@ -384,6 +384,42 @@ export class UserService {
     return this.roomService.findUserRoomsWithFilter(queryDto, userId);
   }
 
+  async setUserRole(userId: string, role: UserRole): Promise<any> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['auth', 'tags'],
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    user.role = role;
+    await this.userRepository.save(user);
+
+    const profile = this.formatUserProfile(user, true);
+    profile.tags = user.tags?.map(tag => this.formatTagInfo(tag)) || [];
+    return profile;
+  }
+
+  async skipOnboarding(userId: string): Promise<any> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['auth', 'tags'],
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    user.new_user = false;
+    await this.userRepository.save(user);
+
+    const profile = this.formatUserProfile(user, true);
+    profile.tags = user.tags?.map(tag => this.formatTagInfo(tag)) || [];
+    return profile;
+  }
+
   private formatUserProfile(user: User, includeAuth = false) {
     const profile: any = {
       id: user.id,
@@ -427,10 +463,11 @@ export class UserService {
     user.notificationStatus = storeFcmTokenDto.notificationStatus;
     await this.userRepository.save(user);
 
-    // If user denied notifications, just update status and return
+    // If user denied notifications, delete all their FCM tokens and return
     if (storeFcmTokenDto.notificationStatus === NotificationStatus.DENIED) {
+      await this.fcmTokenRepository.delete({ user: { id: userId } });
       return {
-        message: 'Notification status updated to denied',
+        message: 'Notification status updated to denied and tokens removed',
         notificationStatus: user.notificationStatus,
       };
     }
@@ -441,36 +478,26 @@ export class UserService {
         throw new BadRequestException('FCM token is required when notifications are allowed');
       }
 
-      // Check if token already exists for this user
-      let fcmToken = await this.fcmTokenRepository.findOne({
-        where: {
+      // Atomic upsert: insert or update on conflict (user + token unique index)
+      await this.fcmTokenRepository
+        .createQueryBuilder()
+        .insert()
+        .values({
           user: { id: userId },
           token: storeFcmTokenDto.token,
-        },
-      });
-
-      if (fcmToken) {
-        // Update existing token
-        fcmToken.lastUsedAt = new Date();
-        fcmToken.deviceType = storeFcmTokenDto.deviceType || fcmToken.deviceType;
-        fcmToken.deviceId = storeFcmTokenDto.deviceId || fcmToken.deviceId;
-        await this.fcmTokenRepository.save(fcmToken);
-      } else {
-        // Create new token
-        fcmToken = this.fcmTokenRepository.create({
-          user,
-          token: storeFcmTokenDto.token,
-          deviceType: storeFcmTokenDto.deviceType,
+          deviceType: storeFcmTokenDto.deviceType || 'web',
           deviceId: storeFcmTokenDto.deviceId,
           lastUsedAt: new Date(),
-        });
-        await this.fcmTokenRepository.save(fcmToken);
-      }
+        })
+        .orUpdate(
+          ['lastUsedAt', 'deviceType', 'deviceId'],
+          ['userId', 'token'],
+        )
+        .execute();
 
       return {
         message: 'Notification status updated to allowed and FCM token stored successfully',
         notificationStatus: user.notificationStatus,
-        tokenId: fcmToken.id,
       };
     }
 

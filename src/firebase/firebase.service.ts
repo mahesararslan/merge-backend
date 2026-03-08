@@ -33,6 +33,14 @@ export class FirebaseService implements OnModuleInit {
     }
   }
 
+  // Permanent FCM error codes where the token should be deleted
+  private static readonly INVALID_TOKEN_ERRORS = new Set([
+    'messaging/invalid-registration-token',
+    'messaging/registration-token-not-registered',
+    'messaging/invalid-argument',
+    'messaging/mismatched-credential',
+  ]);
+
   async sendToDevice(
     token: string,
     payload: {
@@ -67,7 +75,12 @@ export class FirebaseService implements OnModuleInit {
       await admin.messaging().send(message);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to send FCM to token ${token}: ${error.message}`);
+      const errorCode = error?.code || error?.errorInfo?.code;
+      if (errorCode && FirebaseService.INVALID_TOKEN_ERRORS.has(errorCode)) {
+        this.logger.warn(`Invalid FCM token (${errorCode}): ${token.slice(0, 20)}...`);
+      } else {
+        this.logger.error(`Failed to send FCM to token ${token.slice(0, 20)}...: ${error.message}`);
+      }
       return false;
     }
   }
@@ -79,44 +92,57 @@ export class FirebaseService implements OnModuleInit {
       body: string;
       data?: { [key: string]: string };
     },
-  ): Promise<{ successCount: number; failureCount: number }> {
+  ): Promise<{ successCount: number; failureCount: number; invalidTokens: string[] }> {
     if (!this.firebaseApp || tokens.length === 0) {
-      return { successCount: 0, failureCount: 0 };
+      return { successCount: 0, failureCount: 0, invalidTokens: [] };
     }
 
     try {
-    const messages: admin.messaging.Message[] = tokens.map(token => ({
-  token,
-  data: {
-    title: payload.title,
-    body: payload.body,
-    ...payload.data,
-  },
-  webpush: {
-    headers: {
-      Urgency: 'high',
-    },
-    fcmOptions: {
-      link: payload.data?.actionUrl || '/',
-    },
-  },
-}));
+      const messages: admin.messaging.Message[] = tokens.map(token => ({
+        token,
+        data: {
+          title: payload.title,
+          body: payload.body,
+          ...payload.data,
+        },
+        webpush: {
+          headers: {
+            Urgency: 'high',
+          },
+          fcmOptions: {
+            link: payload.data?.actionUrl || '/',
+          },
+        },
+      }));
 
       const response = await admin.messaging().sendEach(messages);
-      
-      const successCount = response.responses.filter(r => r.success).length;
-      const failureCount = response.responses.filter(r => !r.success).length;
-      
+
+      const invalidTokens: string[] = [];
+      let successCount = 0;
+      let failureCount = 0;
+
+      response.responses.forEach((resp, idx) => {
+        if (resp.success) {
+          successCount++;
+        } else {
+          failureCount++;
+          const errorCode = resp.error?.code;
+          if (errorCode && FirebaseService.INVALID_TOKEN_ERRORS.has(errorCode)) {
+            invalidTokens.push(tokens[idx]);
+            this.logger.warn(`Invalid FCM token detected (${errorCode}): ${tokens[idx].slice(0, 20)}...`);
+          } else {
+            this.logger.error(`FCM send failed for token ${tokens[idx].slice(0, 20)}...: ${resp.error?.message}`);
+          }
+        }
+      });
+
       this.logger.log(
-        `FCM multicast: ${successCount} success, ${failureCount} failures`,
+        `FCM multicast: ${successCount} success, ${failureCount} failures, ${invalidTokens.length} invalid tokens`,
       );
-      return {
-        successCount,
-        failureCount,
-      };
+      return { successCount, failureCount, invalidTokens };
     } catch (error) {
       this.logger.error(`Failed to send FCM multicast: ${error.message}`);
-      return { successCount: 0, failureCount: tokens.length };
+      return { successCount: 0, failureCount: tokens.length, invalidTokens: [] };
     }
   }
 }

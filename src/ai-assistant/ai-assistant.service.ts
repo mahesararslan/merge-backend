@@ -740,20 +740,21 @@ export class AiAssistantService {
     } catch (error: any) {
       this.logger.error(`AI streaming query failed: ${error.message}`, error.stack);
 
-      if (error.response) {
-        const status = error.response.status;
-        const detail = error.response.data?.detail || 'AI service error';
+      // SSE headers are already sent (flushed in controller), so we can't throw
+      // HTTP exceptions — NestJS exception filters won't work. Instead, send
+      // an SSE error event so the frontend can display the error properly.
+      const errorMessage = error.response?.data?.detail
+        || error.response?.statusText
+        || error.message
+        || 'AI service error';
 
-        if (status === 404) {
-          throw new NotFoundException(`AI service error: ${detail}`);
-        } else if (status >= 400 && status < 500) {
-          throw new BadRequestException(`AI service error: ${detail}`);
-        }
+      try {
+        res.write(`event: error\ndata: ${JSON.stringify({ error: errorMessage })}\n\n`);
+        res.end();
+      } catch (writeError) {
+        this.logger.error(`Failed to write SSE error event: ${(writeError as any).message}`);
+        try { res.end(); } catch { /* connection already closed */ }
       }
-
-      throw new BadRequestException(
-        `Failed to query AI assistant: ${error.message}`,
-      );
     }
   }
 

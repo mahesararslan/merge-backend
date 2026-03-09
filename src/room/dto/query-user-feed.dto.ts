@@ -1,5 +1,5 @@
-import { IsOptional, IsString } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsArray } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export class QueryUserFeedDto {
   @IsOptional()
@@ -13,4 +13,13 @@ export class QueryUserFeedDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') return value.split(',').map((t: string) => t.trim()).filter(Boolean);
+    if (Array.isArray(value)) return value;
+    return [];
+  })
+  @IsArray()
+  userTags?: string[];
 }

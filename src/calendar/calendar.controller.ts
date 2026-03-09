@@ -22,7 +22,11 @@ export class CalendarController {
   constructor(private readonly calendarService: CalendarService) {}
 
   @Post()
-  async create(@Body() createCalendarEventDto: CreateCalendarEventDto, @Req() req) {
+  async create(
+    @Body() createCalendarEventDto: CreateCalendarEventDto,
+    @Req() req,
+  ) {
+    console.log('Calendar Task:' + req);
     return this.calendarService.create(createCalendarEventDto, req.user.id);
   }
 

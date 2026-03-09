@@ -264,6 +264,12 @@ export class NotificationService {
     notificationIds: string[] = [],
   ): Promise<void> {
     try {
+      // Skip if no recipients (empty where[] in TypeORM returns ALL rows)
+      if (userIds.length === 0) {
+        this.logger.log('No recipients for FCM notification, skipping');
+        return;
+      }
+
       // Get all FCM tokens for these users
       const fcmTokens = await this.fcmTokenRepository.find({
         where: userIds.map((userId) => ({ user: { id: userId } })),

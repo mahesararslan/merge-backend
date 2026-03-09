@@ -94,6 +94,7 @@ export class AuthService {
       token: accessToken,
       refreshToken,
       notificationStatus: user?.notificationStatus || 'default',
+      userTags: user?.tags?.map((tag: any) => tag.name) || [],
     };
   }
 

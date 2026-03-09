@@ -198,17 +198,17 @@ export class RoomService {
     const { page = 1, limit = 10, search } = queryDto;
     const skip = (page - 1) * limit;
 
-    // Get user with their interests/tags
+    // Verify user exists
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['tags'],
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    const userTagNames = user.tags.map((tag) => tag.name);
+    // Use tags from query params instead of DB
+    const userTagNames = queryDto.userTags || [];
     const hasPersonalizedFeed = userTagNames.length > 0;
 
     // Get rooms user has joined or created (always exclude them)

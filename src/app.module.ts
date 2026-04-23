@@ -26,6 +26,9 @@ import { FirebaseModule } from './firebase/firebase.module';
 import { QueueModule } from './queue/queue.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
+import { LiveSessionModule } from './live-session/live-session.module';
+import { LiveKitModule } from './livekit/livekit.module';
+import { LiveQnaModule } from './live-qna/live-qna.module';
 
 @Module({
   imports: [
@@ -71,6 +74,9 @@ import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
     NotificationModule,
     CalendarModule,
     AiAssistantModule,
+    LiveSessionModule,
+    LiveKitModule,
+    LiveQnaModule,
   ],
   controllers: [AppController],
   providers: [

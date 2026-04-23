@@ -1,0 +1,30 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { LiveSessionService } from './live-session.service';
+import { LiveSessionController } from './live-session.controller';
+import { LiveSession } from '../entities/live-video-session.entity';
+import { SessionAttendee } from '../entities/live-video-sesssion-attendee.entity';
+import { LiveVideoPermissions } from '../entities/live-video-permissions.entity';
+import { Room } from '../entities/room.entity';
+import { User } from '../entities/user.entity';
+import { RoomMember } from '../entities/room-member.entity';
+import { RoomRoleGuard } from '../auth/guards/roles/room-role.guard';
+import { CalendarModule } from '../calendar/calendar.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      LiveSession,
+      SessionAttendee,
+      LiveVideoPermissions,
+      Room,
+      User,
+      RoomMember,
+    ]),
+    CalendarModule,
+  ],
+  controllers: [LiveSessionController],
+  providers: [LiveSessionService, RoomRoleGuard],
+  exports: [LiveSessionService],
+})
+export class LiveSessionModule {}

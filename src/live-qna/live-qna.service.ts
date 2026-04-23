@@ -1,0 +1,352 @@
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
+import { LiveQnaQuestion, LiveQnaQuestionStatus } from '../entities/live-qna-question.entity';
+import { LiveQnaVote } from '../entities/live-qna-vote.entity';
+import { User } from '../entities/user.entity';
+import { Room } from '../entities/room.entity';
+import { LiveSession } from '../entities/live-video-session.entity';
+import { CreateLiveQnaQuestionDto } from './dto/create-live-qna-question.dto';
+
+export interface LiveQnaQuestionResponse {
+  id: string;
+  roomId: string;
+  sessionId: string;
+  content: string;
+  status: LiveQnaQuestionStatus;
+  votesCount: number;
+  viewerHasVoted: boolean;
+  isMine: boolean;
+  author: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    image?: string | null;
+  };
+  answeredBy?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    image?: string | null;
+  } | null;
+  answeredAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+@Injectable()
+export class LiveQnaService {
+  constructor(
+    @InjectRepository(LiveQnaQuestion)
+    private readonly questionRepository: Repository<LiveQnaQuestion>,
+    @InjectRepository(LiveQnaVote)
+    private readonly voteRepository: Repository<LiveQnaVote>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    @InjectRepository(Room)
+    private readonly roomRepository: Repository<Room>,
+    @InjectRepository(LiveSession)
+    private readonly sessionRepository: Repository<LiveSession>,
+  ) {}
+
+  async listQuestions(
+    roomId: string,
+    sessionId: string,
+    viewerId: string,
+  ): Promise<LiveQnaQuestionResponse[]> {
+    await this.ensureSession(roomId, sessionId);
+
+    const questions = await this.questionRepository.find({
+      where: {
+        room: { id: roomId },
+        session: { id: sessionId },
+      },
+      relations: ['author', 'answeredBy'],
+      order: {
+        votesCount: 'DESC',
+        createdAt: 'ASC',
+      },
+    });
+
+    if (!questions.length) {
+      return [];
+    }
+
+    const ids = questions.map((q) => q.id);
+    const viewerVotes = await this.voteRepository.find({
+      where: {
+        question: { id: In(ids) },
+        user: { id: viewerId },
+      },
+      relations: ['question'],
+    });
+    const votedIds = new Set(viewerVotes.map((vote) => vote.questionId));
+
+    return questions.map((question) =>
+      this.toResponse(question, viewerId, votedIds.has(question.id)),
+    );
+  }
+
+  async createQuestion(
+    roomId: string,
+    sessionId: string,
+    dto: CreateLiveQnaQuestionDto,
+    authorId: string,
+  ): Promise<LiveQnaQuestionResponse> {
+    const [session, author] = await Promise.all([
+      this.sessionRepository.findOne({
+        where: { id: sessionId },
+        relations: ['room'],
+      }),
+      this.userRepository.findOne({ where: { id: authorId } }),
+    ]);
+
+    if (!session || session.room?.id !== roomId) {
+      throw new NotFoundException('Live session not found');
+    }
+
+    if (!author) {
+      throw new NotFoundException('User not found');
+    }
+
+    const question = this.questionRepository.create({
+      content: dto.content.trim(),
+      author,
+      room: session.room,
+      session,
+    });
+
+    const saved = await this.questionRepository.save(question);
+    const questionWithRelations = await this.loadQuestionOrFail(
+      saved.id,
+      roomId,
+      sessionId,
+    );
+
+    return this.toResponse(questionWithRelations, authorId, false);
+  }
+
+  async voteQuestion(
+    roomId: string,
+    sessionId: string,
+    questionId: string,
+    userId: string,
+  ): Promise<LiveQnaQuestionResponse> {
+    const question = await this.loadQuestionOrFail(
+      questionId,
+      roomId,
+      sessionId,
+    );
+
+    const alreadyVoted = await this.voteRepository.findOne({
+      where: {
+        question: { id: question.id },
+        user: { id: userId },
+      },
+    });
+
+    if (alreadyVoted) {
+      return this.toResponse(question, userId, true);
+    }
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const vote = this.voteRepository.create({ question, user });
+    await this.voteRepository.save(vote);
+    await this.questionRepository.increment(
+      { id: question.id },
+      'votesCount',
+      1,
+    );
+
+    const updated = await this.loadQuestionOrFail(question.id, roomId, sessionId);
+    return this.toResponse(updated, userId, true);
+  }
+
+  async unvoteQuestion(
+    roomId: string,
+    sessionId: string,
+    questionId: string,
+    userId: string,
+  ): Promise<LiveQnaQuestionResponse> {
+    const question = await this.loadQuestionOrFail(
+      questionId,
+      roomId,
+      sessionId,
+    );
+
+    const vote = await this.voteRepository.findOne({
+      where: {
+        question: { id: question.id },
+        user: { id: userId },
+      },
+    });
+
+    if (!vote) {
+      return this.toResponse(question, userId, false);
+    }
+
+    await this.voteRepository.remove(vote);
+    await this.questionRepository.decrement(
+      { id: question.id },
+      'votesCount',
+      1,
+    );
+
+    const updated = await this.loadQuestionOrFail(question.id, roomId, sessionId);
+    return this.toResponse(updated, userId, false);
+  }
+
+  async updateStatus(
+    roomId: string,
+    sessionId: string,
+    questionId: string,
+    status: LiveQnaQuestionStatus,
+    actorId: string,
+  ): Promise<LiveQnaQuestionResponse> {
+    const question = await this.loadQuestionOrFail(
+      questionId,
+      roomId,
+      sessionId,
+    );
+
+    if (question.status === status) {
+      return this.toResponse(
+        question,
+        actorId,
+        await this.userHasVoted(questionId, actorId),
+      );
+    }
+
+    if (status === LiveQnaQuestionStatus.ANSWERED) {
+      const actor = await this.userRepository.findOne({ where: { id: actorId } });
+      if (!actor) {
+        throw new NotFoundException('User not found');
+      }
+      question.status = LiveQnaQuestionStatus.ANSWERED;
+      question.answeredBy = actor;
+      question.answeredAt = new Date();
+    } else if (status === LiveQnaQuestionStatus.OPEN) {
+      question.status = LiveQnaQuestionStatus.OPEN;
+      question.answeredBy = null;
+      question.answeredAt = null;
+    } else {
+      throw new BadRequestException('Invalid status');
+    }
+
+    const saved = await this.questionRepository.save(question);
+    return this.toResponse(
+      saved,
+      actorId,
+      await this.userHasVoted(questionId, actorId),
+    );
+  }
+
+  async removeQuestion(
+    roomId: string,
+    sessionId: string,
+    questionId: string,
+  ): Promise<{ id: string }>
+  {
+    const question = await this.loadQuestionOrFail(
+      questionId,
+      roomId,
+      sessionId,
+    );
+
+    await this.questionRepository.remove(question);
+    return { id: questionId };
+  }
+
+  private async ensureSession(roomId: string, sessionId: string) {
+    const session = await this.sessionRepository.findOne({
+      where: { id: sessionId },
+      relations: ['room'],
+    });
+
+    if (!session || session.room?.id !== roomId) {
+      throw new NotFoundException('Live session not found');
+    }
+
+    return session;
+  }
+
+  private async loadQuestionOrFail(
+    questionId: string,
+    roomId: string,
+    sessionId: string,
+  ) {
+    const question = await this.questionRepository.findOne({
+      where: {
+        id: questionId,
+        room: { id: roomId },
+        session: { id: sessionId },
+      },
+      relations: ['author', 'answeredBy', 'room', 'session'],
+    });
+
+    if (!question) {
+      throw new NotFoundException('Question not found');
+    }
+
+    return question;
+  }
+
+  private async userHasVoted(questionId: string, userId: string) {
+    if (!userId) return false;
+    return this.voteRepository.exist({
+      where: {
+        question: { id: questionId },
+        user: { id: userId },
+      },
+    });
+  }
+
+  private toResponse(
+    question: LiveQnaQuestion,
+    viewerId: string,
+    viewerHasVoted: boolean,
+  ): LiveQnaQuestionResponse {
+    return {
+      id: question.id,
+      roomId: question.roomId,
+      sessionId: question.sessionId,
+      content: question.content,
+      status: question.status,
+      votesCount: Math.max(0, question.votesCount ?? 0),
+      viewerHasVoted,
+      isMine: question.authorId === viewerId,
+      author: question.author
+        ? {
+            id: question.author.id,
+            firstName: question.author.firstName,
+            lastName: question.author.lastName,
+            image: question.author.image,
+          }
+        : {
+            id: question.authorId,
+            firstName: '',
+            lastName: '',
+          },
+      answeredBy: question.answeredBy
+        ? {
+            id: question.answeredBy.id,
+            firstName: question.answeredBy.firstName,
+            lastName: question.answeredBy.lastName,
+            image: question.answeredBy.image,
+          }
+        : null,
+      answeredAt: question.answeredAt ?? null,
+      createdAt: question.createdAt,
+      updatedAt: question.updatedAt,
+    };
+  }
+}

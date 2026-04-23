@@ -15,6 +15,7 @@ import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { QuerySessionDto } from './dto/query-session.dto';
 import { LeaveSessionDto } from './dto/leave-session.dto';
+import { SaveFocusReportDto } from './dto/focus-report.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 import { RoomRoles } from '../auth/decorators/room-roles.decorator';
 import { RoomMemberRole } from '../entities/room-member.entity';
@@ -115,5 +116,14 @@ export class LiveSessionController {
     @Request() req,
   ) {
     return this.liveSessionService.join(id, req.user.id);
+  }
+
+  @Post(':id/focus-report')
+  saveFocusReport(
+    @Param('id') id: string,
+    @Body() dto: SaveFocusReportDto,
+    @Request() req,
+  ) {
+    return this.liveSessionService.saveFocusReport(id, req.user.id, dto);
   }
 }

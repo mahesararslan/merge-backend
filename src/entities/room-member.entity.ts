@@ -6,7 +6,9 @@ import {
   OneToOne,
   Column,
   CreateDateColumn,
-  UpdateDateColumn 
+  UpdateDateColumn,
+  Unique,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
@@ -19,6 +21,8 @@ export enum RoomMemberRole {
 }
 
 @Entity('room_members')
+@Unique('uq_room_member_room_user', ['room', 'user'])
+@Index('idx_room_member_room_role', ['room', 'role'])
 export class RoomMember {
   @PrimaryGeneratedColumn('uuid')
   id: string;

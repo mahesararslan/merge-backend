@@ -1,4 +1,4 @@
-import { NestFactory  } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
@@ -23,13 +23,22 @@ async function bootstrap() {
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true, 
+      transform: true,
     }),
   );
 
-  const allowedOrigins = process.env.ALLOWED_ORIGINS 
-    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-    : ['http://localhost:3000', 'https://www.mergeedu.app','http://localhost:3001', 'http://localhost:5173', 'https://merge-edu.netlify.app', 'https://merge-frontend.onrender.com', 'https://merge-frontend-five.vercel.app', 'http://127.0.0.1:5500'];
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
+    : [
+        'http://localhost:3000',
+        'https://www.mergeedu.app',
+        'http://localhost:3001',
+        'http://localhost:5173',
+        'https://merge-edu.netlify.app',
+        'https://merge-frontend.onrender.com',
+        'https://merge-frontend-five.vercel.app',
+        'http://127.0.0.1:5500',
+      ];
 
   app.enableCors({
     origin: allowedOrigins,
@@ -39,7 +48,9 @@ async function bootstrap() {
   // app.useGlobalInterceptors(app.get(CacheInterceptor));
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  console.log("App is running on http://localhost:" + (process.env.PORT ?? 3000));
-  await app.listen(process.env.PORT ?? 3000);
+  console.log(
+    'App is running on http://localhost:' + (process.env.PORT ?? 3000),
+  );
+  await app.listen(process.env.PORT ?? 3001);
 }
 bootstrap();

@@ -6,6 +6,7 @@ import { IsNull, Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { LiveSession, SessionStatus } from '../entities/live-video-session.entity';
 import { SessionAttendee } from '../entities/live-video-sesssion-attendee.entity';
+import { FocusReport } from '../entities/focus-report.entity';
 import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
 import { RoomMember } from '../entities/room-member.entity';
@@ -15,6 +16,7 @@ import { QuerySessionDto } from './dto/query-session.dto';
 import { CalendarService } from '../calendar/calendar.service';
 import { TaskCategory } from '../entities/calendar-event.entity';
 import { LeaveSessionDto } from './dto/leave-session.dto';
+import { SaveFocusReportDto } from './dto/focus-report.dto';
 
 @Injectable()
 export class LiveSessionService implements OnModuleDestroy {
@@ -34,6 +36,8 @@ export class LiveSessionService implements OnModuleDestroy {
     private userRepository: Repository<User>,
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
+    @InjectRepository(FocusReport)
+    private focusReportRepository: Repository<FocusReport>,
     private calendarService: CalendarService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
@@ -644,5 +648,68 @@ export class LiveSessionService implements OnModuleDestroy {
         } : null,
       })) || undefined,
     };
+  }
+
+  /**
+   * Save a focus tracking report for a user in a session.
+   */
+  async saveFocusReport(sessionId: string, userId: string, dto: SaveFocusReportDto) {
+    // Find the attendee record
+    const attendee = await this.attendeeRepository.findOne({
+      where: {
+        session: { id: sessionId },
+        user: { id: userId },
+      },
+      relations: ['session', 'user'],
+    });
+
+    if (!attendee) {
+      throw new NotFoundException('You are not an attendee of this session');
+    }
+
+    // Update the attendee's focus score
+    attendee.focusScore = dto.focusScore;
+    await this.attendeeRepository.save(attendee);
+
+    // Check for existing report (upsert)
+    let report = await this.focusReportRepository.findOne({
+      where: {
+        session: { id: sessionId },
+        user: { id: userId },
+      },
+    });
+
+    if (report) {
+      // Update existing
+      report.focusScore = dto.focusScore;
+      report.totalDurationMs = dto.totalDurationMs;
+      report.focusedMs = dto.focusedMs;
+      report.distractedMs = dto.distractedMs;
+      report.noFaceMs = dto.noFaceMs;
+      report.longestFocusedStreakMs = dto.longestFocusedStreakMs;
+      report.trackingStartedAt = dto.trackingStartedAt;
+      report.trackingEndedAt = dto.trackingEndedAt;
+      report.events = dto.events;
+    } else {
+      // Create new
+      report = this.focusReportRepository.create({
+        session: attendee.session,
+        user: attendee.user,
+        focusScore: dto.focusScore,
+        totalDurationMs: dto.totalDurationMs,
+        focusedMs: dto.focusedMs,
+        distractedMs: dto.distractedMs,
+        noFaceMs: dto.noFaceMs,
+        longestFocusedStreakMs: dto.longestFocusedStreakMs,
+        trackingStartedAt: dto.trackingStartedAt,
+        trackingEndedAt: dto.trackingEndedAt,
+        events: dto.events,
+      });
+    }
+
+    await this.focusReportRepository.save(report);
+    this.logger.log(`Focus report saved for user ${userId} in session ${sessionId} (score: ${dto.focusScore})`);
+
+    return { ok: true, focusScore: dto.focusScore };
   }
 }

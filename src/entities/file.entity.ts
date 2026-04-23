@@ -31,6 +31,7 @@ export enum FileProcessingStatus {
 @Entity('files')
 @Index(['uploader', 'folder'])
 @Index(['room', 'folder'])
+@Index('idx_file_room_processing_status', ['room', 'processingStatus'])
 export class File {
   @PrimaryGeneratedColumn('uuid')
   id: string;

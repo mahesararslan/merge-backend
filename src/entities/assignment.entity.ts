@@ -4,11 +4,14 @@ import {
   Column,
   ManyToOne,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
 
 @Entity('assignments')
+@Index('idx_assignment_room_published_created', ['room', 'isPublished', 'createdAt'])
+@Index('idx_assignment_room_end_at', ['room', 'endAt'])
 export class Assignment {
   @PrimaryGeneratedColumn('uuid')
   id: string;

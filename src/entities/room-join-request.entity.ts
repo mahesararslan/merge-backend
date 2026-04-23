@@ -6,6 +6,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Unique,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
@@ -18,6 +19,7 @@ export enum JoinRequestStatus {
 
 @Entity('room_join_requests')
 @Unique(['room', 'user'])
+@Index('idx_room_join_req_room_status_created', ['room', 'status', 'createdAt'])
 export class RoomJoinRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;

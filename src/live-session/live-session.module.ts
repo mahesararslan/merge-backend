@@ -6,6 +6,7 @@ import { LiveSessionService } from './live-session.service';
 import { LiveSessionController } from './live-session.controller';
 import { LiveSession } from '../entities/live-video-session.entity';
 import { SessionAttendee } from '../entities/live-video-sesssion-attendee.entity';
+import { FocusReport } from '../entities/focus-report.entity';
 import { LiveVideoPermissions } from '../entities/live-video-permissions.entity';
 import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
@@ -22,6 +23,7 @@ import { CalendarModule } from '../calendar/calendar.module';
       Room,
       User,
       RoomMember,
+      FocusReport,
     ]),
     CalendarModule,
     HttpModule,

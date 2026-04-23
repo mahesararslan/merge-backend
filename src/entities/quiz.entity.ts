@@ -5,6 +5,7 @@ import {
   ManyToOne,
   OneToMany,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
@@ -12,6 +13,8 @@ import { QuizQuestion } from './quiz-question.entity';
 import { QuizAttempt } from './quiz-attempt.entity';
 
 @Entity('quizzes')
+@Index('idx_quiz_room_created', ['room', 'createdAt'])
+@Index('idx_quiz_room_deadline', ['room', 'deadline'])
 export class Quiz {
   @PrimaryGeneratedColumn('uuid')
   id: string;

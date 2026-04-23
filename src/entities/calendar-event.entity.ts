@@ -5,6 +5,7 @@ import {
   Column,
   ManyToOne,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
@@ -22,6 +23,7 @@ export enum TaskStatus {
 }
 
 @Entity('calendar_events')
+@Index('idx_calendar_event_owner_deadline', ['owner', 'deadline'])
 export class CalendarEvent {
   @PrimaryGeneratedColumn('uuid')
   id: string;

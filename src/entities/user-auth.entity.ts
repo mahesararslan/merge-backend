@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   OneToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
@@ -24,12 +25,14 @@ export class UserAuth {
   @Column({ nullable: true })
   hashedRefreshToken: string;
 
+  @Index('idx_user_auth_verification_token')
   @Column({ nullable: true })
   verificationToken: string;
 
   @Column({ default: false })
   isVerified: boolean;
 
+  @Index('idx_user_auth_password_reset_token')
   @Column({ nullable: true })
   passwordResetToken: string;
 

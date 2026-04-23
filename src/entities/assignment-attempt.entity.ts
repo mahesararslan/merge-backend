@@ -3,11 +3,13 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
+  Unique,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Assignment } from './assignment.entity';
 
 @Entity('assignment_attempts')
+@Unique('uq_assign_attempt_assignment_user', ['assignment', 'user'])
 export class AssignmentAttempt {
   @PrimaryGeneratedColumn('uuid')
   id: string;

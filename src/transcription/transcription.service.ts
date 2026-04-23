@@ -10,6 +10,7 @@ interface SessionTranscription {
   segments: string[];
   isOpen: boolean;
   pendingChunks: Buffer[];
+  language: string;
 }
 
 @Injectable()
@@ -48,7 +49,7 @@ export class TranscriptionService implements OnModuleDestroy {
     }
   }
 
-  startSession(sessionId: string): void {
+  startSession(sessionId: string, language: string = 'en'): void {
     if (this.sessions.has(sessionId)) {
       this.logger.warn(`Transcription already active for session ${sessionId}`);
       return;
@@ -64,22 +65,23 @@ export class TranscriptionService implements OnModuleDestroy {
       segments: [],
       isOpen: false,
       pendingChunks: [],
+      language,
     };
 
     this.sessions.set(sessionId, state);
     this.logger.log(`Transcription started for session ${sessionId}`);
 
-    this.initDeepgramConnection(sessionId, state).catch((err) => {
+    this.initDeepgramConnection(sessionId, state, language).catch((err) => {
       this.logger.error(`Failed to init Deepgram for session ${sessionId}: ${err?.message || err}`);
     });
   }
 
-  private async initDeepgramConnection(sessionId: string, state: SessionTranscription): Promise<void> {
+  private async initDeepgramConnection(sessionId: string, state: SessionTranscription, language: string): Promise<void> {
     const deepgram = new (DeepgramClient as any)({ apiKey: this.deepgramApiKey });
 
     const socket = await (deepgram as any).listen.v1.createConnection({
       model: 'nova-2',
-      language: 'en',
+      language,
       encoding: 'linear16',
       sample_rate: 16000,
       channels: 1,
@@ -132,10 +134,10 @@ export class TranscriptionService implements OnModuleDestroy {
     }
   }
 
-  async finalizeTranscript(sessionId: string): Promise<string> {
+  async finalizeTranscript(sessionId: string): Promise<{ text: string; language: string }> {
     const state = this.sessions.get(sessionId);
     if (!state) {
-      return '';
+      return { text: '', language: 'en' };
     }
 
     try {
@@ -145,23 +147,25 @@ export class TranscriptionService implements OnModuleDestroy {
     await new Promise<void>((resolve) => setTimeout(resolve, 1500));
 
     const fullText = state.segments.join(' ').trim();
+    const language = state.language;
     this.sessions.delete(sessionId);
 
-    this.logger.log(`Transcript finalized for session ${sessionId}: ${fullText.length} chars`);
-    return fullText;
+    this.logger.log(`Transcript finalized for session ${sessionId}: ${fullText.length} chars (lang=${language})`);
+    return { text: fullText, language };
   }
 
   async generateNotesAndPdf(
     sessionId: string,
     sessionTitle: string,
     transcript: string,
+    language: string = 'en',
   ): Promise<{ summaryText: string; summaryPdfUrl: string }> {
-    const summaryText = await this.generateNotesWithGemini(sessionTitle, transcript);
+    const summaryText = await this.generateNotesWithGemini(sessionTitle, transcript, language);
     const summaryPdfUrl = await this.buildAndUploadPdf(sessionId, sessionTitle, summaryText);
     return { summaryText, summaryPdfUrl };
   }
 
-  private async generateNotesWithGemini(sessionTitle: string, transcript: string): Promise<string> {
+  private async generateNotesWithGemini(sessionTitle: string, transcript: string, language: string): Promise<string> {
     if (!this.geminiApiKey) {
       this.logger.error('GEMINI_API_KEY is not configured');
       return '';
@@ -170,7 +174,11 @@ export class TranscriptionService implements OnModuleDestroy {
     const genAI = new GoogleGenerativeAI(this.geminiApiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-    const prompt = `You are a study notes generator. Given the following lecture/session transcript, produce structured study notes in exactly this format. Use plain text, no markdown symbols like **, ##, or *.
+    const langNote = language !== 'en'
+      ? `\nIMPORTANT: The transcript below is in ${language === 'ur' ? 'Urdu' : language}. Understand it fully, then produce the study notes ENTIRELY IN ENGLISH.\n`
+      : '';
+
+    const prompt = `You are a study notes generator. Given the following lecture/session transcript, produce structured study notes in exactly this format. Use plain text, no markdown symbols like **, ##, or *. The output MUST always be in English.${langNote}
 
 SESSION SUMMARY
 Write a 2-3 sentence overview of what was covered in this session.

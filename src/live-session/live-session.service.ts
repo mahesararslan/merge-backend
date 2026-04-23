@@ -133,7 +133,7 @@ export class LiveSessionService implements OnModuleDestroy {
   }
 
   private async processTranscriptionAsync(session: LiveSession): Promise<void> {
-    const transcript = await this.transcriptionService.finalizeTranscript(session.id);
+    const { text: transcript, language } = await this.transcriptionService.finalizeTranscript(session.id);
     if (!transcript) {
       this.logger.log(`No transcript for session ${session.id}, skipping notes generation`);
       return;
@@ -143,6 +143,7 @@ export class LiveSessionService implements OnModuleDestroy {
       session.id,
       session.title,
       transcript,
+      language,
     );
 
     await this.sessionRepository.update(session.id, { summaryText, summaryPdfUrl });

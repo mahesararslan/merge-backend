@@ -23,11 +23,11 @@ export class SessionAttendee {
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   user: User;
 
-  @Column({ nullable: true })
-  joinedAt: Date;
+  @Column({ type: 'timestamptz', nullable: true })
+  joinedAt: Date | null;
 
-  @Column({ nullable: true })
-  leftAt: Date;
+  @Column({ type: 'timestamptz', nullable: true })
+  leftAt: Date | null;
 
   @Column({ type: 'float', default: 0 })
   focusScore: number; // 0-100 based on engagement metrics

@@ -7,7 +7,9 @@ import {
   OneToMany,
   CreateDateColumn,
   UpdateDateColumn,
+  JoinColumn,
 } from 'typeorm';
+
 import { User } from './user.entity';
 import { Room } from './room.entity';
 import { SessionAttendee } from './live-video-sesssion-attendee.entity';
@@ -19,8 +21,6 @@ export enum SessionStatus {
   CANCELLED = 'cancelled',
 }
 
-
-
 @Entity('live_sessions')
 export class LiveSession {
   @PrimaryGeneratedColumn('uuid')
@@ -31,6 +31,10 @@ export class LiveSession {
 
   @ManyToOne(() => User)
   host: User;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'acting_host_id' })
+  actingHost: User | null;
 
   @Column()
   title: string;

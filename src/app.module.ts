@@ -38,10 +38,11 @@ import { LiveQnaModule } from './live-qna/live-qna.module';
       load: [dbConfig, dbConfigProduction],
     }),
     TypeOrmModule.forRootAsync({
-      useFactory: () =>
-        process.env.NODE_ENV === 'development'
-          ? dbConfig()
-          : dbConfigProduction(),
+      useFactory: () => {
+        const isProduction = process.env.NODE_ENV === 'production';
+       
+        return isProduction ? dbConfigProduction() : dbConfig();
+      },
     }),
     CacheModule.register({
       isGlobal: true, // makes cache available app-wide

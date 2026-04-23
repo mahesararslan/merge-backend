@@ -14,6 +14,7 @@ import { LiveSessionService } from './live-session.service';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { UpdateSessionDto } from './dto/update-session.dto';
 import { QuerySessionDto } from './dto/query-session.dto';
+import { LeaveSessionDto } from './dto/leave-session.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 import { RoomRoles } from '../auth/decorators/room-roles.decorator';
 import { RoomMemberRole } from '../entities/room-member.entity';
@@ -84,13 +85,25 @@ export class LiveSessionController {
 
   @Post(':id/end')
   @UseGuards(RoomRoleGuard)
-  @RoomRoles(RoomMemberRole.ADMIN)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
   end(
     @Param('id') id: string,
     @Query('roomId') roomId: string,
     @Request() req,
   ) {
     return this.liveSessionService.end(id, req.user.id);
+  }
+
+  @Post(':id/leave')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  leave(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Body() leaveSessionDto: LeaveSessionDto,
+    @Request() req,
+  ) {
+    return this.liveSessionService.leave(id, req.user.id, leaveSessionDto);
   }
 
   @Post(':id/join')

@@ -1,6 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger, OnModuleDestroy } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
+import { firstValueFrom } from 'rxjs';
 import { LiveSession, SessionStatus } from '../entities/live-video-session.entity';
 import { SessionAttendee } from '../entities/live-video-sesssion-attendee.entity';
 import { Room } from '../entities/room.entity';
@@ -11,10 +14,14 @@ import { UpdateSessionDto } from './dto/update-session.dto';
 import { QuerySessionDto } from './dto/query-session.dto';
 import { CalendarService } from '../calendar/calendar.service';
 import { TaskCategory } from '../entities/calendar-event.entity';
+import { LeaveSessionDto } from './dto/leave-session.dto';
 
 @Injectable()
-export class LiveSessionService {
+export class LiveSessionService implements OnModuleDestroy {
   private readonly logger = new Logger(LiveSessionService.name);
+  private readonly communicationServiceUrl: string;
+  private readonly autoEndGraceMs: number;
+  private readonly autoEndTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     @InjectRepository(LiveSession)
@@ -28,7 +35,142 @@ export class LiveSessionService {
     @InjectRepository(RoomMember)
     private roomMemberRepository: Repository<RoomMember>,
     private calendarService: CalendarService,
-  ) {}
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    this.communicationServiceUrl =
+      this.configService.get<string>('COMMUNICATION_SERVICE_URL') ||
+      this.configService.get<string>('COMMUNICATION_URL') ||
+      'http://localhost:3001';
+
+    const graceMsRaw = this.configService.get<string>('LIVE_SESSION_AUTO_END_GRACE_MS');
+    const parsedGrace = graceMsRaw ? parseInt(graceMsRaw, 10) : NaN;
+    this.autoEndGraceMs = Number.isFinite(parsedGrace) && parsedGrace > 0 ? parsedGrace : 60_000;
+  }
+
+  onModuleDestroy() {
+    this.autoEndTimers.forEach((timer) => clearTimeout(timer));
+    this.autoEndTimers.clear();
+  }
+
+  private scheduleAutoEnd(sessionId: string) {
+    if (this.autoEndTimers.has(sessionId)) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      this.autoEndTimers.delete(sessionId);
+      try {
+        const session = await this.sessionRepository.findOne({
+          where: { id: sessionId },
+          relations: ['room', 'attendees', 'attendees.user', 'host', 'actingHost'],
+        });
+
+        if (!session) {
+          return;
+        }
+
+        if (session.status !== SessionStatus.LIVE) {
+          return;
+        }
+
+        const activeAttendees = session.attendees?.filter((attendee) => !attendee.leftAt) ?? [];
+        if (activeAttendees.length > 0) {
+          return;
+        }
+
+        await this.finalizeSession(session, 'auto');
+      } catch (error: any) {
+        this.logger.error(`Auto-end timer failed for session ${sessionId}: ${error?.message || 'Unknown error'}`);
+      }
+    }, this.autoEndGraceMs);
+
+    this.autoEndTimers.set(sessionId, timer);
+    this.logger.log(`Scheduled auto end for session ${sessionId} in ${this.autoEndGraceMs}ms`);
+  }
+
+  private cancelAutoEnd(sessionId: string) {
+    const timer = this.autoEndTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.autoEndTimers.delete(sessionId);
+      this.logger.log(`Cancelled auto end for session ${sessionId}`);
+    }
+  }
+
+  private async finalizeSession(
+    session: LiveSession,
+    reason: 'manual' | 'auto',
+    endedBy?: string,
+  ) {
+    this.cancelAutoEnd(session.id);
+
+    if (session.status === SessionStatus.ENDED) {
+      return this.formatSessionResponse(session);
+    }
+
+    session.status = SessionStatus.ENDED;
+    session.endedAt = new Date();
+    session.actingHost = null;
+
+    if (session.startedAt) {
+      const durationMs = session.endedAt.getTime() - session.startedAt.getTime();
+      session.durationMinutes = Math.max(0, Math.round(durationMs / (1000 * 60)));
+    }
+
+    const updated = await this.sessionRepository.save(session);
+    this.logger.log(`Session ${updated.id} ended (${reason})`);
+
+    await this.notifySessionEnded(updated, reason, endedBy);
+
+    return this.formatSessionResponse(updated);
+  }
+
+  private async notifySessionEnded(
+    session: LiveSession,
+    reason: 'manual' | 'auto',
+    endedBy?: string,
+  ) {
+    const sessionWithRoom = session.room
+      ? session
+      : await this.sessionRepository.findOne({
+          where: { id: session.id },
+          relations: ['room'],
+        });
+
+    if (!sessionWithRoom?.room) {
+      this.logger.warn(`Unable to notify communications about session ${session.id}; room relation missing.`);
+      return;
+    }
+
+    const payload = {
+      roomId: sessionWithRoom.room.id,
+      sessionId: sessionWithRoom.id,
+      reason,
+      endedAt: sessionWithRoom.endedAt?.toISOString(),
+      endedBy,
+    };
+
+    try {
+      const headers: Record<string, string> = {};
+      const internalSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+      if (internalSecret) {
+        headers['x-internal-secret'] = internalSecret;
+      }
+
+      await firstValueFrom(
+        this.httpService.post(
+          `${this.communicationServiceUrl}/internal/live-session-ended`,
+          payload,
+          { headers },
+        ),
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to notify communications about session ${session.id} end: ${error?.message || 'Unknown error'}`,
+      );
+    }
+  }
 
   /**
    * Create a session. If scheduledAt is provided, session is SCHEDULED (host starts manually later).
@@ -155,7 +297,7 @@ export class LiveSessionService {
   async findOne(id: string, userId: string) {
     const session = await this.sessionRepository.findOne({
       where: { id },
-      relations: ['room', 'host', 'attendees', 'attendees.user'],
+      relations: ['room', 'host', 'actingHost', 'attendees', 'attendees.user'],
     });
 
     if (!session) {
@@ -261,33 +403,138 @@ export class LiveSessionService {
   async end(id: string, userId: string) {
     const session = await this.sessionRepository.findOne({
       where: { id },
-      relations: ['room', 'room.admin', 'host'],
+      relations: ['room', 'room.admin', 'host', 'actingHost', 'attendees', 'attendees.user'],
     });
 
     if (!session) {
       throw new NotFoundException('Session not found');
     }
 
-    if (session.room.admin.id !== userId) {
-      throw new ForbiddenException('Only room admin can end sessions');
+    const isRoomAdmin = session.room?.admin?.id === userId;
+    const isHost = session.host?.id === userId;
+    const isActingHost = session.actingHost?.id === userId;
+
+    if (!isRoomAdmin && !isHost && !isActingHost) {
+      throw new ForbiddenException('Only the host or acting host can end the session');
     }
 
     if (session.status !== SessionStatus.LIVE) {
       throw new BadRequestException('Can only end a live session');
     }
 
-    session.status = SessionStatus.ENDED;
-    session.endedAt = new Date();
+    return this.finalizeSession(session, 'manual', userId);
+  }
 
-    // Calculate duration in minutes
-    if (session.startedAt) {
-      const durationMs = session.endedAt.getTime() - session.startedAt.getTime();
-      session.durationMinutes = Math.round(durationMs / (1000 * 60));
+  /**
+   * Leave a live session. Marks attendee as having left and auto-ends if empty.
+   */
+  async leave(id: string, userId: string, dto: LeaveSessionDto = {}) {
+    const session = await this.sessionRepository.findOne({
+      where: { id },
+      relations: ['room', 'host', 'actingHost', 'attendees', 'attendees.user'],
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
     }
 
-    const updated = await this.sessionRepository.save(session);
-    this.logger.log(`Session ended: ${updated.id}, duration: ${updated.durationMinutes}m`);
-    return this.formatSessionResponse(updated);
+    if (session.status !== SessionStatus.LIVE) {
+      return this.formatSessionResponse(session);
+    }
+
+    let attendee: SessionAttendee | null | undefined = session.attendees?.find((a) => a.user?.id === userId);
+    if (!attendee) {
+      attendee = await this.attendeeRepository.findOne({
+        where: {
+          session: { id: session.id },
+          user: { id: userId },
+        },
+        relations: ['user'],
+      });
+    }
+
+    if (!attendee) {
+      this.logger.warn(`User ${userId} attempted to leave session ${id} without an attendee record`);
+      return this.formatSessionResponse(session);
+    }
+
+    attendee.leftAt = new Date();
+    await this.attendeeRepository.save(attendee);
+
+    if (session.attendees) {
+      session.attendees = session.attendees.map((existing) =>
+        existing.id === attendee!.id ? { ...existing, leftAt: attendee!.leftAt } : existing,
+      );
+    }
+
+    const resolveActingHost = (candidateId?: string | null) => {
+      if (!candidateId) {
+        return null;
+      }
+      const candidate = session.attendees?.find(
+        (a) => !a.leftAt && a.user?.id === candidateId,
+      );
+      return candidate?.user ?? null;
+    };
+
+    let actingHostChanged = false;
+
+    if (session.host?.id === userId) {
+      if (dto.actingHostId) {
+        const nextHost = resolveActingHost(dto.actingHostId);
+        if (!nextHost) {
+          throw new BadRequestException('Selected acting host must be an active attendee');
+        }
+        session.actingHost = nextHost;
+      } else {
+        session.actingHost = null;
+      }
+      actingHostChanged = true;
+    } else if (session.actingHost?.id === userId) {
+      if (dto.actingHostId) {
+        const nextHost = resolveActingHost(dto.actingHostId);
+        if (!nextHost) {
+          throw new BadRequestException('Selected acting host must be an active attendee');
+        }
+        session.actingHost = nextHost;
+      } else {
+        session.actingHost = null;
+      }
+      actingHostChanged = true;
+    } else if (dto.actingHostId) {
+      const nextHost = resolveActingHost(dto.actingHostId);
+      if (!nextHost) {
+        throw new BadRequestException('Selected acting host must be an active attendee');
+      }
+      session.actingHost = nextHost;
+      actingHostChanged = true;
+    }
+
+    if (actingHostChanged) {
+      await this.sessionRepository.save(session);
+    }
+
+    const remainingAttendees = await this.attendeeRepository.count({
+      where: {
+        session: { id: session.id },
+        leftAt: IsNull(),
+      },
+    });
+
+    if (remainingAttendees === 0) {
+      this.scheduleAutoEnd(session.id);
+    } else {
+      this.cancelAutoEnd(session.id);
+    }
+
+    this.logger.log(`User ${userId} left session ${id}`);
+
+    const refreshed = await this.sessionRepository.findOne({
+      where: { id: session.id },
+      relations: ['room', 'host', 'actingHost', 'attendees', 'attendees.user'],
+    });
+
+    return this.formatSessionResponse(refreshed ?? session);
   }
 
   /**
@@ -296,7 +543,7 @@ export class LiveSessionService {
   async join(id: string, userId: string) {
     const session = await this.sessionRepository.findOne({
       where: { id },
-      relations: ['room', 'host'],
+      relations: ['room', 'host', 'actingHost', 'attendees', 'attendees.user'],
     });
 
     if (!session) {
@@ -315,7 +562,6 @@ export class LiveSessionService {
       throw new NotFoundException('User not found');
     }
 
-    // Check if already joined
     const existing = await this.attendeeRepository.findOne({
       where: {
         session: { id: session.id },
@@ -324,23 +570,34 @@ export class LiveSessionService {
     });
 
     if (existing) {
-      // Update joinedAt if re-joining
       existing.joinedAt = new Date();
-      delete (existing as any).leftAt;
+      existing.leftAt = null;
       await this.attendeeRepository.save(existing);
-      return this.formatSessionResponse(session);
+    } else {
+      const attendee = this.attendeeRepository.create({
+        session,
+        user,
+        joinedAt: new Date(),
+        leftAt: null,
+      });
+      await this.attendeeRepository.save(attendee);
     }
 
-    // Create new attendee record
-    const attendee = this.attendeeRepository.create({
-      session,
-      user,
-      joinedAt: new Date(),
+    if (session.host?.id === userId && session.actingHost) {
+      session.actingHost = null;
+      await this.sessionRepository.save(session);
+    }
+
+    this.cancelAutoEnd(session.id);
+
+    this.logger.log(`User ${userId} joined session ${id}`);
+
+    const refreshed = await this.sessionRepository.findOne({
+      where: { id: session.id },
+      relations: ['room', 'host', 'actingHost', 'attendees', 'attendees.user'],
     });
 
-    await this.attendeeRepository.save(attendee);
-    this.logger.log(`User ${userId} joined session ${id}`);
-    return this.formatSessionResponse(session);
+    return this.formatSessionResponse(refreshed ?? session);
   }
 
   /**
@@ -362,6 +619,12 @@ export class LiveSessionService {
         firstName: (session.host as any).firstName,
         lastName: (session.host as any).lastName,
         image: (session.host as any).image,
+      } : null,
+      actingHost: session.actingHost ? {
+        id: session.actingHost.id,
+        firstName: (session.actingHost as any).firstName,
+        lastName: (session.actingHost as any).lastName,
+        image: (session.actingHost as any).image,
       } : null,
       room: session.room ? {
         id: session.room.id,

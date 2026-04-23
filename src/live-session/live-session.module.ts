@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LiveSessionService } from './live-session.service';
 import { LiveSessionController } from './live-session.controller';
@@ -22,6 +24,8 @@ import { CalendarModule } from '../calendar/calendar.module';
       RoomMember,
     ]),
     CalendarModule,
+    HttpModule,
+    ConfigModule,
   ],
   controllers: [LiveSessionController],
   providers: [LiveSessionService, RoomRoleGuard],

@@ -27,6 +27,7 @@ import { QueueModule } from './queue/queue.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { LiveSessionModule } from './live-session/live-session.module';
+import { TranscriptionModule } from './transcription/transcription.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { LiveQnaModule } from './live-qna/live-qna.module';
 
@@ -76,6 +77,7 @@ import { LiveQnaModule } from './live-qna/live-qna.module';
     CalendarModule,
     AiAssistantModule,
     LiveSessionModule,
+    TranscriptionModule,
     LiveKitModule,
     LiveQnaModule,
   ],

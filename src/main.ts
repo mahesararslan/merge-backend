@@ -5,6 +5,7 @@ import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { CacheInterceptor } from '@nestjs/cache-manager';
 import * as bodyParser from 'body-parser';
 import * as cookieParser from 'cookie-parser';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -38,6 +39,7 @@ async function bootstrap() {
 
   // app.useGlobalInterceptors(app.get(CacheInterceptor));
 
+  app.useWebSocketAdapter(new IoAdapter(app));
   app.useGlobalFilters(new AllExceptionsFilter());
   console.log("App is running on http://localhost:" + (process.env.PORT ?? 3000));
   await app.listen(process.env.PORT ?? 3000);

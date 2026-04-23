@@ -116,4 +116,15 @@ export class LiveSessionController {
   ) {
     return this.liveSessionService.join(id, req.user.id);
   }
+
+  @Get(':id/summary')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  getSummary(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
+    return this.liveSessionService.getSummary(id, req.user.id);
+  }
 }

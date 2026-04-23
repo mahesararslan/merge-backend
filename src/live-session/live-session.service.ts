@@ -16,7 +16,7 @@ import { QuerySessionDto } from './dto/query-session.dto';
 import { CalendarService } from '../calendar/calendar.service';
 import { TaskCategory } from '../entities/calendar-event.entity';
 import { LeaveSessionDto } from './dto/leave-session.dto';
-import { SaveFocusReportDto } from './dto/focus-report.dto';
+import { TranscriptionService } from '../transcription/transcription.service';
 
 @Injectable()
 export class LiveSessionService implements OnModuleDestroy {
@@ -41,6 +41,7 @@ export class LiveSessionService implements OnModuleDestroy {
     private calendarService: CalendarService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly transcriptionService: TranscriptionService,
   ) {
     this.communicationServiceUrl =
       this.configService.get<string>('COMMUNICATION_SERVICE_URL') ||
@@ -127,7 +128,28 @@ export class LiveSessionService implements OnModuleDestroy {
 
     await this.notifySessionEnded(updated, reason, endedBy);
 
+    this.processTranscriptionAsync(updated).catch((err) => {
+      this.logger.error(`Post-session transcription failed for ${updated.id}: ${err?.message}`);
+    });
+
     return this.formatSessionResponse(updated);
+  }
+
+  private async processTranscriptionAsync(session: LiveSession): Promise<void> {
+    const transcript = await this.transcriptionService.finalizeTranscript(session.id);
+    if (!transcript) {
+      this.logger.log(`No transcript for session ${session.id}, skipping notes generation`);
+      return;
+    }
+
+    const { summaryText, summaryPdfUrl } = await this.transcriptionService.generateNotesAndPdf(
+      session.id,
+      session.title,
+      transcript,
+    );
+
+    await this.sessionRepository.update(session.id, { summaryText, summaryPdfUrl });
+    this.logger.log(`Notes PDF saved for session ${session.id}: ${summaryPdfUrl}`);
   }
 
   private async notifySessionEnded(
@@ -604,6 +626,19 @@ export class LiveSessionService implements OnModuleDestroy {
     return this.formatSessionResponse(refreshed ?? session);
   }
 
+  async getSummary(id: string, userId: string) {
+    const session = await this.sessionRepository.findOne({
+      where: { id },
+      relations: ['room'],
+    });
+    if (!session) throw new NotFoundException('Session not found');
+    return {
+      sessionId: session.id,
+      summaryText: session.summaryText ?? null,
+      summaryPdfUrl: session.summaryPdfUrl ?? null,
+    };
+  }
+
   /**
    * Format session entity to API response.
    */
@@ -634,6 +669,8 @@ export class LiveSessionService implements OnModuleDestroy {
         id: session.room.id,
         title: session.room.title,
       } : null,
+      summaryText: session.summaryText ?? null,
+      summaryPdfUrl: session.summaryPdfUrl ?? null,
       attendeeCount: attendeeCount ?? session.attendees?.length ?? 0,
       attendees: session.attendees?.map(a => ({
         id: a.id,

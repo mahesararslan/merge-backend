@@ -61,7 +61,10 @@ export class LiveSession {
   maxAttendees: number; // Optional limit
 
   @Column({ nullable: true })
-  summaryFileUrl: string; // AI-generated summary PDF
+  summaryText: string; // AI-generated summary (Gemini structured notes)
+
+  @Column({ nullable: true })
+  summaryPdfUrl: string; // S3 public URL of the generated notes PDF
 
   @OneToMany(() => SessionAttendee, (attendee) => attendee.session)
   attendees: SessionAttendee[];

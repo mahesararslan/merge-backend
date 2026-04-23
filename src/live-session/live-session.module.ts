@@ -13,6 +13,7 @@ import { User } from '../entities/user.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { RoomRoleGuard } from '../auth/guards/roles/room-role.guard';
 import { CalendarModule } from '../calendar/calendar.module';
+import { TranscriptionModule } from '../transcription/transcription.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { CalendarModule } from '../calendar/calendar.module';
     CalendarModule,
     HttpModule,
     ConfigModule,
+    TranscriptionModule,
   ],
   controllers: [LiveSessionController],
   providers: [LiveSessionService, RoomRoleGuard],

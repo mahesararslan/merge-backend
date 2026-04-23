@@ -118,12 +118,14 @@ export class LiveSessionController {
     return this.liveSessionService.join(id, req.user.id);
   }
 
-  @Post(':id/focus-report')
-  saveFocusReport(
+  @Get(':id/summary')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)
+  getSummary(
     @Param('id') id: string,
-    @Body() dto: SaveFocusReportDto,
+    @Query('roomId') roomId: string,
     @Request() req,
   ) {
-    return this.liveSessionService.saveFocusReport(id, req.user.id, dto);
+    return this.liveSessionService.getSummary(id, req.user.id);
   }
 }

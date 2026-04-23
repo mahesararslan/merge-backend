@@ -41,6 +41,39 @@ export class AiAssistantService {
   }
 
   /**
+   * Clear any previously-attached file context from a conversation so a new
+   * attachment can replace it. Deletes Flow 2 vectors from FastAPI if they
+   * exist. Caller must still persist the conversation afterward.
+   */
+  private async clearConversationAttachment(
+    conversation: AiConversation,
+  ): Promise<void> {
+    if (conversation.attachmentInVectorDB) {
+      try {
+        await axios.delete(
+          `${this.aiServiceUrl}/vectors/conversation/${conversation.id}`,
+          {
+            timeout: 10000,
+            headers: { 'X-API-Key': this.aiServiceApiKey },
+          },
+        );
+        this.logger.log(
+          `[ATTACHMENT] Cleared Flow 2 vectors for conversation ${conversation.id} to replace attachment`,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `[ATTACHMENT] Failed to delete old vectors for conversation ${conversation.id}: ${err.message}. Proceeding anyway.`,
+        );
+      }
+    }
+    conversation.attachmentUrl = null;
+    conversation.attachmentType = null;
+    conversation.attachmentOriginalName = null;
+    conversation.attachmentContext = null;
+    conversation.attachmentInVectorDB = false;
+  }
+
+  /**
    * Create a new conversation
    */
   async createConversation(
@@ -131,46 +164,66 @@ export class AiAssistantService {
       throw new BadRequestException('You must be part of at least one room to query the AI assistant');
     }
 
-    //  Handle attachment processing (only on first message with attachment)
+    // Handle attachment processing. A conversation can have at most one
+    // "active" attachment; attaching a new file replaces the previous one.
     let attachmentContext: string | null = null;
     let hasVectorAttachment = false;
-    let isFirstAttachment = false; // Flag to track if this is first message with attachment
-    
-    if (messageDto.attachmentS3Url && messageDto.attachmentType && !conversation.attachmentUrl) {
+    let isFirstAttachment = false;
+
+    const incomingAttachment = !!(
+      messageDto.attachmentS3Url && messageDto.attachmentType
+    );
+    const priorAttachmentIncomplete =
+      !!conversation.attachmentUrl &&
+      !conversation.attachmentContext &&
+      !conversation.attachmentInVectorDB;
+    const isReplacingAttachment =
+      incomingAttachment &&
+      !!conversation.attachmentUrl &&
+      messageDto.attachmentS3Url !== conversation.attachmentUrl;
+
+    if (incomingAttachment && (isReplacingAttachment || priorAttachmentIncomplete)) {
+      this.logger.log(
+        `[ATTACHMENT] Replacing prior attachment for conversation ${conversationId}`,
+      );
+      await this.clearConversationAttachment(conversation);
+    }
+
+    if (incomingAttachment && !conversation.attachmentUrl) {
       this.logger.log(
         `[ATTACHMENT] First message with attachment - type=${messageDto.attachmentType}, ` +
-        `size=${messageDto.attachmentFileSize || 'unknown'} bytes, S3=${messageDto.attachmentS3Url.substring(0, 50)}...`
+        `size=${messageDto.attachmentFileSize || 'unknown'} bytes, S3=${messageDto.attachmentS3Url!.substring(0, 50)}...`
       );
 
-      // This is the first message with an attachment for this conversation
       isFirstAttachment = true;
-     conversation.attachmentUrl = messageDto.attachmentS3Url;
-      conversation.attachmentType = messageDto.attachmentType;
+      conversation.attachmentUrl = messageDto.attachmentS3Url!;
+      conversation.attachmentType = messageDto.attachmentType!;
       conversation.attachmentOriginalName = messageDto.attachmentOriginalName || 'Untitled';
-
-      // Wait for FastAPI response to determine flow and update conversation
-      // (will be done after the AI response)
     } else if (conversation.attachmentContext) {
-      // Subsequent message in conversation with Flow 1 attachment
       attachmentContext = conversation.attachmentContext;
       this.logger.log(
         `[ATTACHMENT] Using stored Flow 1 attachment context (${attachmentContext.length} chars)`
       );
     } else if (conversation.attachmentInVectorDB) {
-      // Subsequent message with Flow 2 attachment
       hasVectorAttachment = true;
       this.logger.log(
         `[ATTACHMENT] Using Flow 2 vector storage for conversation ${conversationId}`
       );
     }
 
-    // Save user message
+    // Save user message (include attachment metadata so the UI can render
+    // the file pill on this specific bubble after a refresh).
     const userMessage = this.messageRepository.create({
       conversation,
       user: conversation.user,
       role: MessageRole.USER,
       content: messageDto.message,
       contextFileId: messageDto.contextFileId || null,
+      attachmentOriginalName:
+        messageDto.attachmentOriginalName || null,
+      attachmentType: messageDto.attachmentType || null,
+      attachmentFileSize: messageDto.attachmentFileSize ?? null,
+      attachmentUrl: messageDto.attachmentS3Url || null,
     });
 
     await this.messageRepository.save(userMessage);
@@ -490,20 +543,39 @@ export class AiAssistantService {
       throw new BadRequestException('You must be part of at least one room to query the AI assistant');
     }
 
-    // Handle attachment processing (only on first message with attachment)
+    // Handle attachment processing. A new attachment replaces any prior one.
     let attachmentContext: string | null = null;
     let hasVectorAttachment = false;
     let isFirstAttachment = false;
-    
-    if (messageDto.attachmentS3Url && messageDto.attachmentType && !conversation.attachmentUrl) {
+
+    const incomingAttachment = !!(
+      messageDto.attachmentS3Url && messageDto.attachmentType
+    );
+    const priorAttachmentIncomplete =
+      !!conversation.attachmentUrl &&
+      !conversation.attachmentContext &&
+      !conversation.attachmentInVectorDB;
+    const isReplacingAttachment =
+      incomingAttachment &&
+      !!conversation.attachmentUrl &&
+      messageDto.attachmentS3Url !== conversation.attachmentUrl;
+
+    if (incomingAttachment && (isReplacingAttachment || priorAttachmentIncomplete)) {
+      this.logger.log(
+        `[ATTACHMENT] Replacing prior attachment for conversation ${conversationId}`,
+      );
+      await this.clearConversationAttachment(conversation);
+    }
+
+    if (incomingAttachment && !conversation.attachmentUrl) {
       this.logger.log(
         `[ATTACHMENT] First message with attachment - type=${messageDto.attachmentType}, ` +
-        `size=${messageDto.attachmentFileSize || 'unknown'} bytes, S3=${messageDto.attachmentS3Url.substring(0, 50)}...`
+        `size=${messageDto.attachmentFileSize || 'unknown'} bytes, S3=${messageDto.attachmentS3Url!.substring(0, 50)}...`
       );
 
       isFirstAttachment = true;
-      conversation.attachmentUrl = messageDto.attachmentS3Url;
-      conversation.attachmentType = messageDto.attachmentType;
+      conversation.attachmentUrl = messageDto.attachmentS3Url!;
+      conversation.attachmentType = messageDto.attachmentType!;
       conversation.attachmentOriginalName = messageDto.attachmentOriginalName || 'Untitled';
     } else if (conversation.attachmentContext) {
       attachmentContext = conversation.attachmentContext;
@@ -517,13 +589,19 @@ export class AiAssistantService {
       );
     }
 
-    // Save user message
+    // Save user message (include attachment metadata so the UI can render
+    // the file pill on this specific bubble after a refresh).
     const userMessage = this.messageRepository.create({
       conversation,
       user: conversation.user,
       role: MessageRole.USER,
       content: messageDto.message,
       contextFileId: messageDto.contextFileId || null,
+      attachmentOriginalName:
+        messageDto.attachmentOriginalName || null,
+      attachmentType: messageDto.attachmentType || null,
+      attachmentFileSize: messageDto.attachmentFileSize ?? null,
+      attachmentUrl: messageDto.attachmentS3Url || null,
     });
 
     await this.messageRepository.save(userMessage);
@@ -916,6 +994,10 @@ export class AiAssistantService {
       chunksRetrieved: message.chunksRetrieved,
       processingTimeMs: message.processingTimeMs,
       createdAt: message.createdAt,
+      attachmentOriginalName: message.attachmentOriginalName ?? null,
+      attachmentType: message.attachmentType ?? null,
+      attachmentFileSize: message.attachmentFileSize ?? null,
+      attachmentUrl: message.attachmentUrl ?? null,
     };
   }
 }

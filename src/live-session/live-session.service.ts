@@ -16,6 +16,7 @@ import { QuerySessionDto } from './dto/query-session.dto';
 import { CalendarService } from '../calendar/calendar.service';
 import { TaskCategory } from '../entities/calendar-event.entity';
 import { LeaveSessionDto } from './dto/leave-session.dto';
+import { SaveFocusReportDto } from './dto/focus-report.dto';
 import { TranscriptionService } from '../transcription/transcription.service';
 
 @Injectable()
@@ -748,5 +749,41 @@ export class LiveSessionService implements OnModuleDestroy {
     this.logger.log(`Focus report saved for user ${userId} in session ${sessionId} (score: ${dto.focusScore})`);
 
     return { ok: true, focusScore: dto.focusScore };
+  }
+
+  /**
+   * Fetch the current user's focus report for a session, or null if none exists.
+   * Used by the historical "View My Focus Report" flow on past session cards.
+   */
+  async getMyFocusReport(sessionId: string, userId: string) {
+    const report = await this.focusReportRepository.findOne({
+      where: {
+        session: { id: sessionId },
+        user: { id: userId },
+      },
+      relations: ['session', 'user'],
+    });
+
+    if (!report) {
+      return { report: null };
+    }
+
+    return {
+      report: {
+        id: report.id,
+        sessionId: report.session.id,
+        userId: report.user.id,
+        focusScore: report.focusScore,
+        totalDurationMs: Number(report.totalDurationMs),
+        focusedMs: Number(report.focusedMs),
+        distractedMs: Number(report.distractedMs),
+        noFaceMs: Number(report.noFaceMs),
+        longestFocusedStreakMs: Number(report.longestFocusedStreakMs),
+        trackingStartedAt: Number(report.trackingStartedAt),
+        trackingEndedAt: Number(report.trackingEndedAt),
+        events: report.events ?? [],
+        createdAt: report.createdAt,
+      },
+    };
   }
 }

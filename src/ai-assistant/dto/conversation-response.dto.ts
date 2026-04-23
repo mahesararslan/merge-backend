@@ -10,6 +10,10 @@ export class MessageResponseDto {
   chunksRetrieved?: number | null;
   processingTimeMs?: number | null;
   createdAt: Date;
+  attachmentOriginalName?: string | null;
+  attachmentType?: string | null;
+  attachmentFileSize?: number | null;
+  attachmentUrl?: string | null;
 }
 
 export class AttachmentMetadataDto {

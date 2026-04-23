@@ -50,6 +50,24 @@ export class AiChatMessage {
   @Column({ type: 'float', nullable: true })
   processingTimeMs: number | null; // Assistant messages only
 
+  // Attachment metadata for user messages that carried a file upload.
+  // Kept at message level (separate from conversation.attachmentUrl) so
+  // the UI can show the file pill on the specific bubble that uploaded it.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  attachmentOriginalName: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  attachmentType: string | null;
+
+  @Column({ type: 'bigint', nullable: true, transformer: {
+    to: (v: number | null) => v,
+    from: (v: string | null) => (v == null ? null : Number(v)),
+  }})
+  attachmentFileSize: number | null;
+
+  @Column({ type: 'varchar', length: 1024, nullable: true })
+  attachmentUrl: string | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
 }

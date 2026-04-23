@@ -128,4 +128,18 @@ export class LiveSessionController {
   ) {
     return this.liveSessionService.getSummary(id, req.user.id);
   }
+
+  @Post(':id/focus-report')
+  saveFocusReport(
+    @Param('id') id: string,
+    @Body() dto: SaveFocusReportDto,
+    @Request() req,
+  ) {
+    return this.liveSessionService.saveFocusReport(id, req.user.id, dto);
+  }
+
+  @Get(':id/focus-report/me')
+  getMyFocusReport(@Param('id') id: string, @Request() req) {
+    return this.liveSessionService.getMyFocusReport(id, req.user.id);
+  }
 }

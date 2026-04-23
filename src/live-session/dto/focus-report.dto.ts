@@ -14,7 +14,16 @@ import { Type } from 'class-transformer';
 
 class FocusEventDto {
   @IsString()
-  @IsIn(['focused', 'no_face', 'looking_away', 'eyes_closed'])
+  @IsIn([
+    'focused',
+    'no_face',
+    'looking_away',
+    'eyes_closed',
+    'drowsy',
+    'looking_down',
+    'tab_switched',
+    'multi_face',
+  ])
   state: string;
 
   @IsNumber()

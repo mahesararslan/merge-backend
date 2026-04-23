@@ -58,12 +58,13 @@ export class TranscriptionGateway implements OnGatewayConnection, OnGatewayDisco
   @SubscribeMessage('startTranscription')
   handleStart(
     @ConnectedSocket() client: AuthSocket,
-    @MessageBody() data: { sessionId: string },
+    @MessageBody() data: { sessionId: string; language?: string },
   ) {
     if (!client.userId) return;
+    const language = data.language || 'en';
     client.sessionId = data.sessionId;
-    this.transcriptionService.startSession(data.sessionId);
-    this.logger.log(`Transcription started: session=${data.sessionId} user=${client.userId}`);
+    this.transcriptionService.startSession(data.sessionId, language);
+    this.logger.log(`Transcription started: session=${data.sessionId} lang=${language} user=${client.userId}`);
   }
 
   private chunkCounts = new Map<string, number>();

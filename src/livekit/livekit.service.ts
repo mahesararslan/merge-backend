@@ -1,8 +1,14 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { Room } from '../entities/room.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { LiveVideoPermissions } from '../entities/live-video-permissions.entity';
@@ -14,6 +20,8 @@ export class LiveKitService {
   private readonly logger = new Logger(LiveKitService.name);
   private readonly apiKey: string;
   private readonly apiSecret: string;
+  private readonly livekitHost: string;
+  private roomServiceClient: RoomServiceClient | null = null;
 
   constructor(
     private configService: ConfigService,
@@ -30,6 +38,67 @@ export class LiveKitService {
   ) {
     this.apiKey = this.configService.get<string>('LIVEKIT_API_KEY') || '';
     this.apiSecret = this.configService.get<string>('LIVEKIT_API_SECRET') || '';
+    this.livekitHost = this.resolveLiveKitHost();
+  }
+
+  private resolveLiveKitHost(): string {
+    const candidates = [
+      this.configService.get<string>('LIVEKIT_HOST'),
+      this.configService.get<string>('LIVEKIT_URL'),
+      this.configService.get<string>('LIVEKIT_SERVER_URL'),
+      this.configService.get<string>('NEXT_PUBLIC_LIVEKIT_URL'),
+    ];
+
+    const first = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+    if (!first) {
+      return '';
+    }
+
+    // RoomServiceClient uses HTTP(S) transport. Convert ws(s) input if needed.
+    return first.trim().replace(/^ws/i, 'http').replace(/\/$/, '');
+  }
+
+  private getSessionRoomName(sessionId: string): string {
+    return `session-${sessionId}`;
+  }
+
+  private getRoomServiceClient(): RoomServiceClient {
+    if (this.roomServiceClient) {
+      return this.roomServiceClient;
+    }
+
+    if (!this.livekitHost) {
+      throw new InternalServerErrorException('LiveKit host is not configured');
+    }
+
+    if (!this.apiKey || !this.apiSecret) {
+      throw new InternalServerErrorException('LiveKit credentials are not configured');
+    }
+
+    this.roomServiceClient = new RoomServiceClient(
+      this.livekitHost,
+      this.apiKey,
+      this.apiSecret,
+    );
+
+    return this.roomServiceClient;
+  }
+
+  async ensureSessionRoom(sessionId: string): Promise<void> {
+    const roomName = this.getSessionRoomName(sessionId);
+    const roomServiceClient = this.getRoomServiceClient();
+
+    try {
+      await roomServiceClient.createRoom({ name: roomName });
+      this.logger.log(`Created LiveKit room ${roomName}`);
+    } catch (error: any) {
+      const message = String(error?.message || '').toLowerCase();
+      if (message.includes('already exists') || message.includes('exists')) {
+        this.logger.log(`LiveKit room ${roomName} already exists`);
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -73,8 +142,7 @@ export class LiveKitService {
 
     const isAdmin = room.admin.id === userId;
     const participantName = `${(user as any).firstName} ${(user as any).lastName}`;
-    // Use sessionId as the LiveKit room name for uniqueness
-    const livekitRoomName = `session-${sessionId}`;
+    const livekitRoomName = this.getSessionRoomName(sessionId);
 
     // All participants get full publish/subscribe rights at the LiveKit level.
     // Host-managed permissions are enforced client-side via LiveKit data channel messages.

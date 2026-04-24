@@ -25,7 +25,12 @@ export class CalendarService {
 		private calendarQueue: Queue,
 	) {}
 
-	async createForRoomMembers(createCalendarEventDto: CreateCalendarEventDto, roomId: string) {
+	async createForRoomMembers(
+		createCalendarEventDto: CreateCalendarEventDto,
+		roomId: string,
+		options?: { scheduleReminders?: boolean },
+	) {
+		const scheduleReminders = options?.scheduleReminders ?? true;
 		// Find all room members
 		const members = await this.roomMemberRepository.find({ where: { room: { id: roomId } }, relations: ['user'] });
 		const results: CalendarEvent[] = [];
@@ -39,16 +44,18 @@ export class CalendarService {
 				taskStatus: TaskStatus.PENDING,
 			});
 			const saved = await this.calendarEventRepository.save(event);
-			// Schedule notifications
-			const now = Date.now();
-			const deadline = new Date(saved.deadline).getTime();
-			const diff24h = deadline - now - 24 * 60 * 60 * 1000;
-			const diff5m = deadline - now - 5 * 60 * 1000;
-			if (diff24h > 0) {
-				await this.calendarQueue.add('notify-24hr-before-deadline', { eventId: saved.id }, { delay: diff24h, removeOnComplete: true });
-			}
-			if (diff5m > 0) {
-				await this.calendarQueue.add('notify-5min-before-deadline', { eventId: saved.id }, { delay: diff5m, removeOnComplete: true });
+			if (scheduleReminders) {
+				// Schedule notifications
+				const now = Date.now();
+				const deadline = new Date(saved.deadline).getTime();
+				const diff24h = deadline - now - 24 * 60 * 60 * 1000;
+				const diff5m = deadline - now - 5 * 60 * 1000;
+				if (diff24h > 0) {
+					await this.calendarQueue.add('notify-24hr-before-deadline', { eventId: saved.id }, { delay: diff24h, removeOnComplete: true });
+				}
+				if (diff5m > 0) {
+					await this.calendarQueue.add('notify-5min-before-deadline', { eventId: saved.id }, { delay: diff5m, removeOnComplete: true });
+				}
 			}
 			results.push(saved);
 		}

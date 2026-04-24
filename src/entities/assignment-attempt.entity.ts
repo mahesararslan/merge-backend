@@ -4,12 +4,14 @@ import {
   Column,
   ManyToOne,
   Unique,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Assignment } from './assignment.entity';
 
 @Entity('assignment_attempts')
 @Unique('uq_assign_attempt_assignment_user', ['assignment', 'user'])
+@Index('idx_assign_attempt_assignment_score', ['assignment', 'score'])
 export class AssignmentAttempt {
   @PrimaryGeneratedColumn('uuid')
   id: string;

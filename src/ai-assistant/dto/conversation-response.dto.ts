@@ -28,7 +28,10 @@ export class ConversationResponseDto {
   title: string;
 
   summary?: string | null;
+  /** @deprecated use `attachments` — kept populated with the first entry for backwards compat. */
   attachment?: AttachmentMetadataDto | null;
+  /** All active attachments on this conversation (cap: 2). */
+  attachments?: AttachmentMetadataDto[];
   createdAt: Date;
   updatedAt: Date;
   messageCount?: number;

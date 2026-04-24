@@ -8,12 +8,15 @@ import {
   ManyToMany,
   JoinTable,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Tag } from './tag.entity';
 import { RoomMember } from './room-member.entity';
 
 @Entity('rooms')
+@Index('idx_room_public_created', ['isPublic', 'createdAt'])
+@Index('idx_room_admin', ['admin'])
 export class Room {
   @PrimaryGeneratedColumn('uuid')
   id: string;

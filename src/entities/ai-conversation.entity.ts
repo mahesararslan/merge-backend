@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { AiChatMessage } from './ai-chat-message.entity';
+import { ConversationAttachment } from './conversation-attachment.entity';
 
 export enum AttachmentType {
   IMAGE = 'image',
@@ -34,12 +35,15 @@ export class AiConversation {
   @Column({ type: 'text', nullable: true })
   summary: string | null;
 
-  // Attachment fields for file-as-context feature
+  // Legacy single-attachment columns. Kept for backwards compat with
+  // existing conversations — new code writes to `attachments` (below).
+  // When reading, if `attachments` is empty and these are populated,
+  // the legacy values are treated as a single synthetic attachment.
   @Column({ type: 'text', nullable: true })
-  attachmentContext: string | null; // Flow 1: Extracted text/base64 content
+  attachmentContext: string | null;
 
   @Column({ type: 'varchar', length: 1024, nullable: true })
-  attachmentUrl: string | null; // S3 URL
+  attachmentUrl: string | null;
 
   @Column({
     type: 'enum',
@@ -52,10 +56,16 @@ export class AiConversation {
   attachmentOriginalName: string | null;
 
   @Column({ type: 'boolean', default: false })
-  attachmentInVectorDB: boolean; // Flow 2: Stored in Qdrant
+  attachmentInVectorDB: boolean;
 
   @Column({ type: 'timestamp', nullable: true })
   attachmentVectorsCleanedAt: Date | null;
+
+  // Current multi-file attachments — capped at 2 in the service layer.
+  @OneToMany(() => ConversationAttachment, (a) => a.conversation, {
+    cascade: true,
+  })
+  attachments: ConversationAttachment[];
 
   @OneToMany(() => AiChatMessage, (message) => message.conversation)
   messages: AiChatMessage[];

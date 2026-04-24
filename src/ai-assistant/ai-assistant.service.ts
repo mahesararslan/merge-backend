@@ -6,6 +6,7 @@ import axios from 'axios';
 import { Response } from 'express';
 import { AiChatMessage, MessageRole } from '../entities/ai-chat-message.entity';
 import { AiConversation } from '../entities/ai-conversation.entity';
+import { ConversationAttachment } from '../entities/conversation-attachment.entity';
 import { User } from '../entities/user.entity';
 import { RoomService } from '../room/room.service';
 import {
@@ -27,6 +28,8 @@ export class AiAssistantService {
     private conversationRepository: Repository<AiConversation>,
     @InjectRepository(AiChatMessage)
     private messageRepository: Repository<AiChatMessage>,
+    @InjectRepository(ConversationAttachment)
+    private attachmentRepository: Repository<ConversationAttachment>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private configService: ConfigService,
@@ -38,6 +41,61 @@ export class AiAssistantService {
     if (!this.aiServiceApiKey) {
       throw new Error('AI_SERVICE_API_KEY environment variable is required');
     }
+  }
+
+  /** Maximum number of attachments we allow per conversation. */
+  private static readonly MAX_ATTACHMENTS_PER_CONVERSATION = 2;
+
+  /**
+   * One-time migration for conversations created before multi-file
+   * support. If the legacy scalar columns are set and the new relation
+   * is empty, move the legacy data into a proper ConversationAttachment
+   * row and clear the scalars. Safe to call on every request — no-op
+   * when the conversation is already migrated.
+   */
+  private async migrateLegacyAttachmentIfNeeded(
+    conversation: AiConversation,
+  ): Promise<void> {
+    if (conversation.attachments && conversation.attachments.length > 0) return;
+    if (!conversation.attachmentUrl || !conversation.attachmentType) return;
+
+    const migrated = this.attachmentRepository.create({
+      conversation,
+      url: conversation.attachmentUrl,
+      type: conversation.attachmentType,
+      originalName: conversation.attachmentOriginalName || 'Untitled',
+      fileSize: null,
+      context: conversation.attachmentContext,
+      inVectorDB: conversation.attachmentInVectorDB,
+    });
+    await this.attachmentRepository.save(migrated);
+
+    conversation.attachmentUrl = null;
+    conversation.attachmentType = null;
+    conversation.attachmentOriginalName = null;
+    conversation.attachmentContext = null;
+    conversation.attachmentInVectorDB = false;
+    await this.conversationRepository.save(conversation);
+
+    conversation.attachments = [migrated];
+    this.logger.log(
+      `[ATTACHMENT] Migrated legacy attachment for conversation ${conversation.id} into relation`,
+    );
+  }
+
+  /**
+   * Combine all Flow 1 attachment texts into a single prompt-ready
+   * string. Each file is labelled so the LLM can distinguish them.
+   * Returns null when no Flow 1 attachments exist.
+   */
+  private buildCombinedAttachmentContext(
+    attachments: ConversationAttachment[],
+  ): string | null {
+    const parts = attachments
+      .filter((a) => a.context)
+      .map((a) => `## File: ${a.originalName}\n\n${a.context}`);
+    if (parts.length === 0) return null;
+    return parts.join('\n\n---\n\n');
   }
 
   /**
@@ -392,6 +450,7 @@ export class AiAssistantService {
     const conversations = await this.conversationRepository.find({
       where: { user: { id: userId } },
       order: { updatedAt: 'DESC' },
+      relations: ['attachments'],
     });
 
     const formatted = await Promise.all(
@@ -410,6 +469,7 @@ export class AiAssistantService {
   ): Promise<ConversationWithMessagesDto> {
     const conversation = await this.conversationRepository.findOne({
       where: { id: conversationId, user: { id: userId } },
+      relations: ['attachments'],
     });
 
     if (!conversation) {
@@ -439,7 +499,7 @@ export class AiAssistantService {
 
     const conversation = await this.conversationRepository.findOne({
       where: { id: conversationId, user: { id: userId } },
-      relations: ['user'], // Explicitly load user relation for verification
+      relations: ['user', 'attachments'],
     });
 
     if (!conversation) {
@@ -449,8 +509,11 @@ export class AiAssistantService {
     let vectorsDeleted = false;
     let vectorCleanupWarning = '';
 
-    // Cleanup attachment vectors if conversation used Flow 2
-    if (conversation.attachmentInVectorDB) {
+    // Cleanup attachment vectors if any attachment (legacy or new) used Flow 2.
+    const hasAnyVectorAttachment =
+      conversation.attachmentInVectorDB ||
+      (conversation.attachments || []).some((a) => a.inVectorDB);
+    if (hasAnyVectorAttachment) {
       try {     
         
         const vectorResponse = await axios.delete(
@@ -526,15 +589,19 @@ export class AiAssistantService {
     userId: string,
     res: Response,
   ): Promise<void> {
-    // Get conversation and validate access
+    // Load conversation with its attachments. The 'attachments' relation
+    // is the current source of truth; legacy scalar columns are migrated
+    // on the fly by migrateLegacyAttachmentIfNeeded.
     const conversation = await this.conversationRepository.findOne({
       where: { id: conversationId, user: { id: userId } },
-      relations: ['user'],
+      relations: ['user', 'attachments'],
     });
 
     if (!conversation) {
       throw new NotFoundException('Conversation not found');
     }
+
+    await this.migrateLegacyAttachmentIfNeeded(conversation);
 
     // Get user's current room IDs (dynamically fetched)
     const userRoomIds = await this.roomService.getUserRoomIds(userId);
@@ -543,49 +610,85 @@ export class AiAssistantService {
       throw new BadRequestException('You must be part of at least one room to query the AI assistant');
     }
 
-    // Handle attachment processing. A new attachment replaces any prior one.
+    // Multi-file attachment handling.
+    // - Incoming attachment already attached (same URL) → no-op, reuse stored context.
+    // - Incoming attachment new → create a row, subject to the cap of
+    //   MAX_ATTACHMENTS_PER_CONVERSATION. Reject with 400 if exceeded.
+    // - No incoming attachment → just reuse all stored attachments' contexts.
     let attachmentContext: string | null = null;
     let hasVectorAttachment = false;
     let isFirstAttachment = false;
+    let newAttachment: ConversationAttachment | null = null;
 
     const incomingAttachment = !!(
       messageDto.attachmentS3Url && messageDto.attachmentType
     );
-    const priorAttachmentIncomplete =
-      !!conversation.attachmentUrl &&
-      !conversation.attachmentContext &&
-      !conversation.attachmentInVectorDB;
-    const isReplacingAttachment =
-      incomingAttachment &&
-      !!conversation.attachmentUrl &&
-      messageDto.attachmentS3Url !== conversation.attachmentUrl;
 
-    if (incomingAttachment && (isReplacingAttachment || priorAttachmentIncomplete)) {
-      this.logger.log(
-        `[ATTACHMENT] Replacing prior attachment for conversation ${conversationId}`,
+    const currentAttachments = conversation.attachments || [];
+
+    if (incomingAttachment) {
+      const alreadyAttached = currentAttachments.find(
+        (a) => a.url === messageDto.attachmentS3Url,
       );
-      await this.clearConversationAttachment(conversation);
+
+      if (!alreadyAttached) {
+        if (currentAttachments.length >= AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION) {
+          // Headers are already flushed by the controller, so we can't
+          // throw and let the exception filter respond — that crashes
+          // with ERR_HTTP_HEADERS_SENT. Emit the error as an SSE event
+          // (frontend's useStreamQuery handles `event: error`) and end
+          // the stream cleanly.
+          const errorPayload = {
+            error: `This conversation already has the maximum of ${AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION} attached files. Start a new conversation or remove one before attaching another.`,
+          };
+          this.logger.warn(
+            `[ATTACHMENT] Rejected 3rd attachment for conversation ${conversationId}`,
+          );
+          res.write(`event: error\ndata: ${JSON.stringify(errorPayload)}\n\n`);
+          if (typeof (res as any).flush === 'function') (res as any).flush();
+          res.end();
+          return;
+        }
+
+        newAttachment = this.attachmentRepository.create({
+          conversation,
+          url: messageDto.attachmentS3Url!,
+          type: messageDto.attachmentType!,
+          originalName: messageDto.attachmentOriginalName || 'Untitled',
+          fileSize: messageDto.attachmentFileSize ?? null,
+          context: null,
+          inVectorDB: false,
+        });
+        await this.attachmentRepository.save(newAttachment);
+        currentAttachments.push(newAttachment);
+        conversation.attachments = currentAttachments;
+
+        isFirstAttachment = true;
+        this.logger.log(
+          `[ATTACHMENT] Added file #${currentAttachments.length}/` +
+          `${AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION} to conversation ${conversationId} ` +
+          `— type=${messageDto.attachmentType}, size=${messageDto.attachmentFileSize || 'unknown'}`,
+        );
+      } else {
+        this.logger.log(
+          `[ATTACHMENT] Incoming file already attached to conversation ${conversationId} — reusing stored context`,
+        );
+      }
     }
 
-    if (incomingAttachment && !conversation.attachmentUrl) {
-      this.logger.log(
-        `[ATTACHMENT] First message with attachment - type=${messageDto.attachmentType}, ` +
-        `size=${messageDto.attachmentFileSize || 'unknown'} bytes, S3=${messageDto.attachmentS3Url!.substring(0, 50)}...`
-      );
+    // Build combined Flow 1 context from all stored attachments that have
+    // already been processed (previous files). The new file's context is
+    // still empty at this point — FastAPI will extract it and we'll save
+    // it after the response.
+    attachmentContext = this.buildCombinedAttachmentContext(currentAttachments);
 
-      isFirstAttachment = true;
-      conversation.attachmentUrl = messageDto.attachmentS3Url!;
-      conversation.attachmentType = messageDto.attachmentType!;
-      conversation.attachmentOriginalName = messageDto.attachmentOriginalName || 'Untitled';
-    } else if (conversation.attachmentContext) {
-      attachmentContext = conversation.attachmentContext;
+    // Flow 2 flag is true if ANY attachment lives in the vector DB.
+    hasVectorAttachment = currentAttachments.some((a) => a.inVectorDB);
+
+    if (attachmentContext) {
       this.logger.log(
-        `[ATTACHMENT] Using stored Flow 1 attachment context (${attachmentContext.length} chars)`
-      );
-    } else if (conversation.attachmentInVectorDB) {
-      hasVectorAttachment = true;
-      this.logger.log(
-        `[ATTACHMENT] Using Flow 2 vector storage for conversation ${conversationId}`
+        `[ATTACHMENT] Using combined Flow 1 context from ${currentAttachments.filter((a) => a.context).length} file(s), ` +
+        `${attachmentContext.length} chars total`,
       );
     }
 
@@ -654,24 +757,32 @@ export class AiAssistantService {
         conversation_id: conversationId,
       };
 
-      // Add attachment fields if present
+      // Attachment fields — with multi-file support, these are not
+      // mutually exclusive. A query can simultaneously:
+      //  - carry stored context from prior files (attachment_context),
+      //  - ask FastAPI to process a newly added file (attachment_s3_url),
+      //  - flag that some attachment lives in Qdrant (has_vector_attachment).
+      // FastAPI combines whichever arrive.
+      if (attachmentContext) {
+        requestPayload.attachment_context = attachmentContext;
+        this.logger.log(
+          `[ATTACHMENT] Including stored context for ${currentAttachments.filter((a) => a.context).length} file(s), ${attachmentContext.length} chars`,
+        );
+      }
       if (isFirstAttachment) {
         requestPayload.attachment_s3_url = messageDto.attachmentS3Url;
         requestPayload.attachment_type = messageDto.attachmentType;
         requestPayload.attachment_file_size = messageDto.attachmentFileSize || 0;
+        requestPayload.attachment_original_name =
+          messageDto.attachmentOriginalName || 'Untitled';
         this.logger.log(
-          `[ATTACHMENT] Sending to FastAPI for flow decision - ` +
-          `size=${messageDto.attachmentFileSize} bytes, type=${messageDto.attachmentType}`
+          `[ATTACHMENT] Also sending new file for flow decision - size=${messageDto.attachmentFileSize} bytes, type=${messageDto.attachmentType}`,
         );
-      } else if (attachmentContext) {
-        requestPayload.attachment_context = attachmentContext;
-        this.logger.log(
-          `[ATTACHMENT] Including Flow 1 context in request (${attachmentContext.length} chars)`
-        );
-      } else if (hasVectorAttachment) {
+      }
+      if (hasVectorAttachment) {
         requestPayload.has_vector_attachment = true;
         this.logger.log(
-          `[ATTACHMENT] Flagging Flow 2 vector retrieval for conversation ${conversationId}`
+          `[ATTACHMENT] Flagging Flow 2 vector retrieval for conversation ${conversationId}`,
         );
       }
 
@@ -754,29 +865,30 @@ export class AiAssistantService {
         this.logger.log('Stream completed, saving to database');
         
         try {
-          // Update conversation with attachment processing results
-          if (isFirstAttachment && attachmentFlowUsed) {
+          // Persist the newly-added attachment's processing result onto
+          // the ConversationAttachment row (not the legacy scalar
+          // columns). This lets each file keep its own Flow 1 context or
+          // Flow 2 flag without conflicting with other attachments in
+          // the same conversation.
+          if (isFirstAttachment && newAttachment && attachmentFlowUsed) {
             this.logger.log(
               `[ATTACHMENT] FastAPI response - flow_used=${attachmentFlowUsed}, ` +
               `extracted_content_length=${extractedContentLength || 0}`
             );
-            
+
             if (attachmentFlowUsed === 'direct_injection') {
-              conversation.attachmentContext = extractedContent || null;
+              newAttachment.context = extractedContent || null;
               this.logger.log(
-                `[ATTACHMENT] ✓ Flow 1 Complete: Stored attachmentContext (${extractedContentLength || 0} chars)`
+                `[ATTACHMENT] ✓ Flow 1 Complete: Stored attachment context (${extractedContentLength || 0} chars) on attachment ${newAttachment.id}`
               );
             } else if (attachmentFlowUsed === 'vector_storage') {
-              conversation.attachmentInVectorDB = true;
+              newAttachment.inVectorDB = true;
               this.logger.log(
-                `[ATTACHMENT] ✓ Flow 2 Complete: Stored in vector DB (${chunksCreatedForAttachment || 0} chunks)`
+                `[ATTACHMENT] ✓ Flow 2 Complete: Stored in vector DB (${chunksCreatedForAttachment || 0} chunks) for attachment ${newAttachment.id}`
               );
             }
 
-            await this.conversationRepository.save(conversation);
-            this.logger.log(
-              `[ATTACHMENT] Conversation ${conversationId} saved with attachment metadata`
-            );
+            await this.attachmentRepository.save(newAttachment);
           }
 
           // Save assistant message to database
@@ -952,14 +1064,30 @@ export class AiAssistantService {
       updatedAt: conversation.updatedAt,
     };
 
-    // Add attachment metadata if present
-    if (conversation.attachmentUrl) {
-      response.attachment = {
+    // Attachment metadata — prefer the multi-file relation, fall back
+    // to legacy scalar columns for conversations not yet migrated.
+    const relationAttachments = (conversation.attachments || []).map((a) => ({
+      url: a.url,
+      type: a.type,
+      originalName: a.originalName,
+      inVectorDB: a.inVectorDB,
+    }));
+    if (relationAttachments.length > 0) {
+      response.attachments = relationAttachments;
+      // Keep the legacy single-attachment field populated with the first
+      // one for any frontend code still reading it.
+      response.attachment = relationAttachments[0];
+    } else if (conversation.attachmentUrl) {
+      const legacy = {
         url: conversation.attachmentUrl,
         type: conversation.attachmentType!,
         originalName: conversation.attachmentOriginalName!,
         inVectorDB: conversation.attachmentInVectorDB,
       };
+      response.attachment = legacy;
+      response.attachments = [legacy];
+    } else {
+      response.attachments = [];
     }
 
     if (includeStats) {

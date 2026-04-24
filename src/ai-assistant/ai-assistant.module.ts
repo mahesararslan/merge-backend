@@ -5,6 +5,7 @@ import { AiAssistantService } from './ai-assistant.service';
 import { AiAssistantController } from './ai-assistant.controller';
 import { AiConversation } from '../entities/ai-conversation.entity';
 import { AiChatMessage } from '../entities/ai-chat-message.entity';
+import { ConversationAttachment } from '../entities/conversation-attachment.entity';
 import { User } from '../entities/user.entity';
 import { RoomModule } from '../room/room.module';
 
@@ -13,6 +14,7 @@ import { RoomModule } from '../room/room.module';
     TypeOrmModule.forFeature([
       AiConversation,
       AiChatMessage,
+      ConversationAttachment,
       User,
     ]),
     ConfigModule,

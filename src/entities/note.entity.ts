@@ -5,11 +5,15 @@ import {
   ManyToOne,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Folder } from './folder.entity';
 
 @Entity('notes')
+@Index('idx_note_owner_created', ['owner', 'createdAt'])
+@Index('idx_note_owner_updated', ['owner', 'updatedAt'])
+@Index('idx_note_owner_folder', ['owner', 'folder'])
 export class Note {
   @PrimaryGeneratedColumn('uuid')
   id: string;

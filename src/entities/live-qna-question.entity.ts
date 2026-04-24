@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
   JoinColumn,
   RelationId,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Room } from './room.entity';
@@ -20,6 +21,7 @@ export enum LiveQnaQuestionStatus {
 }
 
 @Entity('live_qna_questions')
+@Index('idx_live_qna_question_room_session_votes_created', ['room', 'session', 'votesCount', 'createdAt'])
 export class LiveQnaQuestion {
   @PrimaryGeneratedColumn('uuid')
   id: string;

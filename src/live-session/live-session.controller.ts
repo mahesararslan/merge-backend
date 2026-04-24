@@ -129,6 +129,17 @@ export class LiveSessionController {
     return this.liveSessionService.getSummary(id, req.user.id);
   }
 
+  @Get(':id/attendees')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  getAttendees(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
+    return this.liveSessionService.getAttendees(id);
+  }
+
   @Post(':id/focus-report')
   saveFocusReport(
     @Param('id') id: string,

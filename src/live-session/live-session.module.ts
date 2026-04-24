@@ -14,6 +14,7 @@ import { RoomMember } from '../entities/room-member.entity';
 import { RoomRoleGuard } from '../auth/guards/roles/room-role.guard';
 import { CalendarModule } from '../calendar/calendar.module';
 import { TranscriptionModule } from '../transcription/transcription.module';
+import { CanvasModule } from '../canvas/canvas.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { TranscriptionModule } from '../transcription/transcription.module';
     HttpModule,
     ConfigModule,
     TranscriptionModule,
+    CanvasModule,
   ],
   controllers: [LiveSessionController],
   providers: [LiveSessionService, RoomRoleGuard],

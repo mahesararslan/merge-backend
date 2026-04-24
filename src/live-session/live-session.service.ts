@@ -18,6 +18,8 @@ import { TaskCategory } from '../entities/calendar-event.entity';
 import { LeaveSessionDto } from './dto/leave-session.dto';
 import { SaveFocusReportDto } from './dto/focus-report.dto';
 import { TranscriptionService } from '../transcription/transcription.service';
+import { CanvasPermissionService } from '../canvas/canvas-permission.service';
+import { cleanupYjsRoom } from '../canvas/yjs-ws-server';
 
 @Injectable()
 export class LiveSessionService implements OnModuleDestroy {
@@ -43,6 +45,7 @@ export class LiveSessionService implements OnModuleDestroy {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly transcriptionService: TranscriptionService,
+    private readonly canvasPermissionService: CanvasPermissionService,
   ) {
     this.communicationServiceUrl =
       this.configService.get<string>('COMMUNICATION_SERVICE_URL') ||
@@ -128,6 +131,12 @@ export class LiveSessionService implements OnModuleDestroy {
     this.logger.log(`Session ${updated.id} ended (${reason})`);
 
     await this.notifySessionEnded(updated, reason, endedBy);
+
+    // Clean up canvas permissions and Yjs room
+    this.canvasPermissionService.clearSession(updated.id).catch((err) => {
+      this.logger.error(`Canvas permission cleanup failed for ${updated.id}: ${err?.message}`);
+    });
+    cleanupYjsRoom(updated.id);
 
     this.processTranscriptionAsync(updated).catch((err) => {
       this.logger.error(`Post-session transcription failed for ${updated.id}: ${err?.message}`);
@@ -626,6 +635,32 @@ export class LiveSessionService implements OnModuleDestroy {
     });
 
     return this.formatSessionResponse(refreshed ?? session);
+  }
+
+  async getAttendees(id: string) {
+    const session = await this.sessionRepository.findOne({
+      where: { id },
+      relations: ['attendees', 'attendees.user'],
+    });
+    if (!session) throw new NotFoundException('Session not found');
+
+    return {
+      sessionId: session.id,
+      attendees: (session.attendees ?? []).map((a) => ({
+        id: a.id,
+        joinedAt: a.joinedAt,
+        leftAt: a.leftAt,
+        focusScore: a.focusScore,
+        user: a.user
+          ? {
+              id: a.user.id,
+              firstName: (a.user as any).firstName,
+              lastName: (a.user as any).lastName,
+              image: (a.user as any).image,
+            }
+          : null,
+      })),
+    };
   }
 
   async getSummary(id: string, userId: string) {

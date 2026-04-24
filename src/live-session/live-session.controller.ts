@@ -140,6 +140,18 @@ export class LiveSessionController {
     return this.liveSessionService.getAttendees(id);
   }
 
+  @Post(':id/kick')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  kick(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Body() body: { targetUserId: string },
+    @Request() req,
+  ) {
+    return this.liveSessionService.kickAttendee(id, req.user.id, body.targetUserId);
+  }
+
   @Post(':id/focus-report')
   saveFocusReport(
     @Param('id') id: string,

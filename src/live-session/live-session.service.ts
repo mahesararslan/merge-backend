@@ -637,6 +637,33 @@ export class LiveSessionService implements OnModuleDestroy {
     return this.formatSessionResponse(refreshed ?? session);
   }
 
+  async kickAttendee(sessionId: string, hostUserId: string, targetUserId: string) {
+    const session = await this.sessionRepository.findOne({
+      where: { id: sessionId },
+      relations: ['room', 'room.admin', 'host', 'attendees', 'attendees.user'],
+    });
+
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.host?.id !== hostUserId && (session.room?.admin as any)?.id !== hostUserId) {
+      throw new BadRequestException('Only the host can kick attendees');
+    }
+    if (targetUserId === hostUserId) {
+      throw new BadRequestException('Cannot kick yourself');
+    }
+
+    const attendee = session.attendees?.find((a) => a.user?.id === targetUserId && !a.leftAt);
+    if (!attendee) {
+      throw new NotFoundException('Attendee not found or already left');
+    }
+
+    attendee.leftAt = new Date();
+    await this.attendeeRepository.save(attendee);
+
+    this.logger.log(`Host ${hostUserId} kicked user ${targetUserId} from session ${sessionId}`);
+
+    return { ok: true, kickedUserId: targetUserId };
+  }
+
   async getAttendees(id: string) {
     const session = await this.sessionRepository.findOne({
       where: { id },

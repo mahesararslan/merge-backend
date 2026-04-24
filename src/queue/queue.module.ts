@@ -39,6 +39,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     BullModule.registerQueue({
       name: 'calendar',
     }),
+    BullModule.registerQueue({
+      name: 'live-sessions',
+    }),
   ],
   exports: [BullModule],
 })

@@ -30,6 +30,7 @@ import { LiveSessionModule } from './live-session/live-session.module';
 import { TranscriptionModule } from './transcription/transcription.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { LiveQnaModule } from './live-qna/live-qna.module';
+import { CanvasModule } from './canvas/canvas.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { LiveQnaModule } from './live-qna/live-qna.module';
     TranscriptionModule,
     LiveKitModule,
     LiveQnaModule,
+    CanvasModule,
   ],
   controllers: [AppController],
   providers: [

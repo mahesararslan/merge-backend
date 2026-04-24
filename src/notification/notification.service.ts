@@ -9,6 +9,7 @@ import { FcmToken } from '../entities/fcm-token.entity';
 import { Announcement } from '../entities/announcement.entity';
 import { Assignment } from '../entities/assignment.entity';
 import { Quiz } from '../entities/quiz.entity';
+import { LiveSession, SessionStatus } from '../entities/live-video-session.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { FirebaseService } from '../firebase/firebase.service';
 
@@ -287,6 +288,9 @@ export class NotificationService {
       const titlePrefix =
         data.type === 'assignment' ? 'New Assignment' :
         data.type === 'quiz' ? 'New Quiz' :
+        data.type === 'live-session-created' ? 'Session Created' :
+        data.type === 'live-session-started' ? 'Session Started' :
+        data.type === 'live-session-reminder' ? 'Session Reminder' :
         data.type === 'assignment-due-soon' ? 'Assignment Due Soon' :
         data.type === 'quiz-due-soon' ? 'Quiz Due Soon' :
         data.type === 'calendar-reminder' ? 'Calendar Reminder' :
@@ -387,6 +391,176 @@ export class NotificationService {
     if (result.affected === 0) {
       throw new Error('Notification not found');
     }
+  }
+
+  private async resolveLiveSession(sessionId: string): Promise<LiveSession | null> {
+    return this.notificationRepository.manager.getRepository(LiveSession).findOne({
+      where: { id: sessionId },
+      relations: ['room', 'room.admin', 'host'],
+    });
+  }
+
+  private async getLiveSessionRecipients(
+    session: LiveSession,
+    actorId?: string,
+  ): Promise<string[]> {
+    const roomMembers = await this.roomMemberRepository.find({
+      where: { room: { id: session.room.id } },
+      relations: ['user'],
+    });
+
+    const allUserIds = new Set<string>([
+      session.room.admin.id,
+      ...roomMembers.map((member) => member.user.id),
+    ]);
+
+    if (actorId) {
+      allUserIds.delete(actorId);
+    }
+
+    return Array.from(allUserIds);
+  }
+
+  async createLiveSessionCreatedNotifications(session: LiveSession, actorId?: string): Promise<void> {
+    const loadedSession = await this.resolveLiveSession(session.id);
+    if (!loadedSession) {
+      this.logger.warn(`Session ${session.id} not found for created notifications`);
+      return;
+    }
+
+    const recipientIds = await this.getLiveSessionRecipients(loadedSession, actorId);
+    if (recipientIds.length === 0) {
+      return;
+    }
+
+    const isScheduled = loadedSession.status === SessionStatus.SCHEDULED;
+    const title = loadedSession.title;
+    const body = isScheduled
+      ? `Session scheduled: ${title}`
+      : `Session is live: ${title}`;
+    const actionUrl = isScheduled
+      ? `/rooms/${loadedSession.room.id}/sessions`
+      : `/rooms/${loadedSession.room.id}/live?sessionId=${loadedSession.id}`;
+
+    const notifications: Notification[] = recipientIds.map((userId) =>
+      this.notificationRepository.create({
+        user: { id: userId },
+        content: body,
+        metadata: {
+          roomId: loadedSession.room.id,
+          roomTitle: loadedSession.room.title,
+          sessionId: loadedSession.id,
+          sessionTitle: loadedSession.title,
+          actionUrl,
+        },
+        isRead: false,
+        pushSent: false,
+      }),
+    );
+
+    const savedNotifications = await this.notificationRepository.save(notifications);
+    const savedIds = savedNotifications.map((notification) => notification.id);
+
+    await this.sendFcmNotifications(
+      recipientIds,
+      loadedSession.room.title,
+      body,
+      {
+        type: 'live-session-created',
+        roomId: loadedSession.room.id,
+        roomTitle: loadedSession.room.title,
+        sessionId: loadedSession.id,
+        sessionTitle: loadedSession.title,
+        actionUrl,
+      },
+      savedIds,
+    );
+  }
+
+  async createLiveSessionStartedNotifications(session: LiveSession, actorId?: string): Promise<void> {
+    const loadedSession = await this.resolveLiveSession(session.id);
+    if (!loadedSession) {
+      this.logger.warn(`Session ${session.id} not found for started notifications`);
+      return;
+    }
+
+    const recipientIds = await this.getLiveSessionRecipients(loadedSession, actorId);
+    if (recipientIds.length === 0) {
+      return;
+    }
+
+    const body = `Session started: ${loadedSession.title}`;
+    const actionUrl = `/rooms/${loadedSession.room.id}/live?sessionId=${loadedSession.id}`;
+
+    const notifications: Notification[] = recipientIds.map((userId) =>
+      this.notificationRepository.create({
+        user: { id: userId },
+        content: body,
+        metadata: {
+          roomId: loadedSession.room.id,
+          roomTitle: loadedSession.room.title,
+          sessionId: loadedSession.id,
+          sessionTitle: loadedSession.title,
+          actionUrl,
+        },
+        isRead: false,
+        pushSent: false,
+      }),
+    );
+
+    const savedNotifications = await this.notificationRepository.save(notifications);
+    const savedIds = savedNotifications.map((notification) => notification.id);
+
+    await this.sendFcmNotifications(
+      recipientIds,
+      loadedSession.room.title,
+      body,
+      {
+        type: 'live-session-started',
+        roomId: loadedSession.room.id,
+        roomTitle: loadedSession.room.title,
+        sessionId: loadedSession.id,
+        sessionTitle: loadedSession.title,
+        actionUrl,
+      },
+      savedIds,
+    );
+  }
+
+  async sendLiveSessionReminderNotification(sessionId: string): Promise<void> {
+    const session = await this.resolveLiveSession(sessionId);
+    if (!session) {
+      this.logger.warn(`Session ${sessionId} not found for reminder notification`);
+      return;
+    }
+
+    if (session.status !== SessionStatus.SCHEDULED) {
+      this.logger.log(
+        `Skipping reminder notification for session ${sessionId}; status is ${session.status}`,
+      );
+      return;
+    }
+
+    const recipientIds = await this.getLiveSessionRecipients(session, session.host?.id);
+    if (recipientIds.length === 0) {
+      return;
+    }
+
+    const body = `Reminder: Session starts in 5 minutes - ${session.title}`;
+
+    await this.sendFcmNotifications(
+      recipientIds,
+      session.room.title,
+      body,
+      {
+        type: 'live-session-reminder',
+        roomId: session.room.id,
+        roomTitle: session.room.title,
+        sessionId: session.id,
+        sessionTitle: session.title,
+        actionUrl: `/rooms/${session.room.id}/sessions`,
+      },
+    );
   }
 
   async sendAssignmentDueSoonNotification(assignmentId: string): Promise<void> {

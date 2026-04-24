@@ -129,6 +129,29 @@ export class LiveSessionController {
     return this.liveSessionService.getSummary(id, req.user.id);
   }
 
+  @Get(':id/attendees')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  getAttendees(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Request() req,
+  ) {
+    return this.liveSessionService.getAttendees(id);
+  }
+
+  @Post(':id/kick')
+  @UseGuards(RoomRoleGuard)
+  @RoomRoles(RoomMemberRole.ADMIN)
+  kick(
+    @Param('id') id: string,
+    @Query('roomId') roomId: string,
+    @Body() body: { targetUserId: string },
+    @Request() req,
+  ) {
+    return this.liveSessionService.kickAttendee(id, req.user.id, body.targetUserId);
+  }
+
   @Post(':id/focus-report')
   saveFocusReport(
     @Param('id') id: string,

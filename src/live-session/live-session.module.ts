@@ -14,6 +14,11 @@ import { RoomMember } from '../entities/room-member.entity';
 import { RoomRoleGuard } from '../auth/guards/roles/room-role.guard';
 import { CalendarModule } from '../calendar/calendar.module';
 import { TranscriptionModule } from '../transcription/transcription.module';
+import { CanvasModule } from '../canvas/canvas.module';
+import { QueueModule } from '../queue/queue.module';
+import { NotificationModule } from '../notification/notification.module';
+import { LiveKitModule } from '../livekit/livekit.module';
+import { LiveSessionProcessor } from './live-session.processor';
 
 @Module({
   imports: [
@@ -30,9 +35,13 @@ import { TranscriptionModule } from '../transcription/transcription.module';
     HttpModule,
     ConfigModule,
     TranscriptionModule,
+    CanvasModule,
+    QueueModule,
+    NotificationModule,
+    LiveKitModule,
   ],
   controllers: [LiveSessionController],
-  providers: [LiveSessionService, RoomRoleGuard],
+  providers: [LiveSessionService, LiveSessionProcessor, RoomRoleGuard],
   exports: [LiveSessionService],
 })
 export class LiveSessionModule {}

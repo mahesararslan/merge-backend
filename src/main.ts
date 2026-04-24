@@ -6,6 +6,9 @@ import { CacheInterceptor } from '@nestjs/cache-manager';
 import * as bodyParser from 'body-parser';
 import * as cookieParser from 'cookie-parser';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import { JwtService } from '@nestjs/jwt';
+import { CanvasPermissionService } from './canvas/canvas-permission.service';
+import { setupYjsWebSocket } from './canvas/yjs-ws-server';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -53,6 +56,11 @@ async function bootstrap() {
   console.log(
     'App is running on http://localhost:' + (process.env.PORT ?? 3000),
   );
-  await app.listen(process.env.PORT ?? 3001);
+  const server = await app.listen(process.env.PORT ?? 3001);
+
+  // Attach Yjs WebSocket server for collaborative canvas
+  const jwtService = app.get(JwtService);
+  const canvasPermissionService = app.get(CanvasPermissionService);
+  setupYjsWebSocket(server, jwtService, canvasPermissionService);
 }
 bootstrap();

@@ -1,8 +1,10 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger, OnModuleDestroy } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bull';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
+import { Queue } from 'bull';
 import { firstValueFrom } from 'rxjs';
 import { LiveSession, SessionStatus } from '../entities/live-video-session.entity';
 import { SessionAttendee } from '../entities/live-video-sesssion-attendee.entity';
@@ -18,6 +20,10 @@ import { TaskCategory } from '../entities/calendar-event.entity';
 import { LeaveSessionDto } from './dto/leave-session.dto';
 import { SaveFocusReportDto } from './dto/focus-report.dto';
 import { TranscriptionService } from '../transcription/transcription.service';
+import { CanvasPermissionService } from '../canvas/canvas-permission.service';
+import { cleanupYjsRoom } from '../canvas/yjs-ws-server';
+import { NotificationService } from '../notification/notification.service';
+import { LiveKitService } from '../livekit/livekit.service';
 
 @Injectable()
 export class LiveSessionService implements OnModuleDestroy {
@@ -39,15 +45,21 @@ export class LiveSessionService implements OnModuleDestroy {
     private roomMemberRepository: Repository<RoomMember>,
     @InjectRepository(FocusReport)
     private focusReportRepository: Repository<FocusReport>,
+    @InjectQueue('live-sessions')
+    private readonly sessionQueue: Queue,
     private calendarService: CalendarService,
+    private readonly notificationService: NotificationService,
+    private readonly livekitService: LiveKitService,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly transcriptionService: TranscriptionService,
+    private readonly canvasPermissionService: CanvasPermissionService,
   ) {
     this.communicationServiceUrl =
+      this.configService.get<string>('COMMUNICATIONS_SERVER_URL') ||
       this.configService.get<string>('COMMUNICATION_SERVICE_URL') ||
       this.configService.get<string>('COMMUNICATION_URL') ||
-      'http://localhost:3001';
+      'http://localhost:3002';
 
     const graceMsRaw = this.configService.get<string>('LIVE_SESSION_AUTO_END_GRACE_MS');
     const parsedGrace = graceMsRaw ? parseInt(graceMsRaw, 10) : NaN;
@@ -129,6 +141,12 @@ export class LiveSessionService implements OnModuleDestroy {
 
     await this.notifySessionEnded(updated, reason, endedBy);
 
+    // Clean up canvas permissions and Yjs room
+    this.canvasPermissionService.clearSession(updated.id).catch((err) => {
+      this.logger.error(`Canvas permission cleanup failed for ${updated.id}: ${err?.message}`);
+    });
+    cleanupYjsRoom(updated.id);
+
     this.processTranscriptionAsync(updated).catch((err) => {
       this.logger.error(`Post-session transcription failed for ${updated.id}: ${err?.message}`);
     });
@@ -154,6 +172,34 @@ export class LiveSessionService implements OnModuleDestroy {
     this.logger.log(`Notes PDF saved for session ${session.id}: ${summaryPdfUrl}`);
   }
 
+  private async notifyCommunications(
+    eventType: 'session-created' | 'session-started' | 'session-cancelled' | 'session-ended',
+    data: any,
+  ) {
+    const endpoint = eventType === 'session-ended' ? 'live-session-ended' : 'live-session-event';
+    const payload = eventType === 'session-ended' ? data : { type: eventType, ...data };
+
+    try {
+      const headers: Record<string, string> = {};
+      const internalSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+      if (internalSecret) {
+        headers['x-internal-secret'] = internalSecret;
+      }
+
+      await firstValueFrom(
+        this.httpService.post(
+          `${this.communicationServiceUrl}/internal/${endpoint}`,
+          payload,
+          { headers },
+        ),
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to notify communications about ${eventType}: ${error?.message || 'Unknown error'}`,
+      );
+    }
+  }
+
   private async notifySessionEnded(
     session: LiveSession,
     reason: 'manual' | 'auto',
@@ -171,7 +217,7 @@ export class LiveSessionService implements OnModuleDestroy {
       return;
     }
 
-    const payload = {
+    const data = {
       roomId: sessionWithRoom.room.id,
       sessionId: sessionWithRoom.id,
       reason,
@@ -179,25 +225,7 @@ export class LiveSessionService implements OnModuleDestroy {
       endedBy,
     };
 
-    try {
-      const headers: Record<string, string> = {};
-      const internalSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
-      if (internalSecret) {
-        headers['x-internal-secret'] = internalSecret;
-      }
-
-      await firstValueFrom(
-        this.httpService.post(
-          `${this.communicationServiceUrl}/internal/live-session-ended`,
-          payload,
-          { headers },
-        ),
-      );
-    } catch (error: any) {
-      this.logger.error(
-        `Failed to notify communications about session ${session.id} end: ${error?.message || 'Unknown error'}`,
-      );
-    }
+    await this.notifyCommunications('session-ended', data);
   }
 
   /**
@@ -245,6 +273,13 @@ export class LiveSessionService implements OnModuleDestroy {
     const saved = await this.sessionRepository.save(session);
     this.logger.log(`Session created: ${saved.id} (${saved.status})`);
 
+    // If instant live, ensure LiveKit room
+    if (!isScheduled) {
+      await this.livekitService.ensureSessionRoom(saved.id).catch((err) => {
+        this.logger.error(`Failed to ensure LiveKit room for session ${saved.id}: ${err.message}`);
+      });
+    }
+
     // Create calendar event for all room members
     const calendarDeadline = isScheduled
       ? createSessionDto.scheduledAt!
@@ -256,11 +291,33 @@ export class LiveSessionService implements OnModuleDestroy {
         description: saved.description || '',
         deadline: calendarDeadline,
         taskCategory: TaskCategory.VIDEO_SESSION,
-      }, room.id);
+      }, room.id, { scheduleReminders: false }); // Disable default calendar reminders
     } catch (error: any) {
       this.logger.error(`Failed to create calendar events: ${error.message}`);
-      // Don't fail the session creation if calendar fails
     }
+
+    // Schedule 5-minute reminder if scheduled more than 5 minutes out
+    if (isScheduled && saved.scheduledAt) {
+      const delay = saved.scheduledAt.getTime() - Date.now() - 5 * 60 * 1000;
+      if (delay > 0) {
+        await this.sessionQueue.add(
+          'send-5min-reminder',
+          { sessionId: saved.id },
+          { delay, jobId: `reminder-${saved.id}`, removeOnComplete: true },
+        );
+      }
+    }
+
+    // Send created notifications
+    await this.notificationService.createLiveSessionCreatedNotifications(saved, userId).catch((err) => {
+      this.logger.error(`Failed to send session-created notifications: ${err.message}`);
+    });
+
+    // Notify communications
+    await this.notifyCommunications('session-created', {
+      roomId: room.id,
+      session: this.formatSessionResponse(saved),
+    });
 
     return this.formatSessionResponse(saved);
   }
@@ -388,8 +445,30 @@ export class LiveSessionService implements OnModuleDestroy {
       throw new ForbiddenException('Only room admin can delete sessions');
     }
 
-    await this.sessionRepository.remove(session);
-    return { message: 'Session deleted successfully' };
+    // If session was scheduled, cancel the reminder job
+    if (session.status === SessionStatus.SCHEDULED) {
+      try {
+        const job = await this.sessionQueue.getJob(`reminder-${session.id}`);
+        if (job) {
+          await job.remove();
+          this.logger.log(`Cancelled reminder job for session ${session.id}`);
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to cancel reminder job for session ${session.id}: ${err.message}`);
+      }
+    }
+
+    // Soft cancel
+    session.status = SessionStatus.CANCELLED;
+    await this.sessionRepository.save(session);
+
+    // Notify communications
+    await this.notifyCommunications('session-cancelled', {
+      roomId: session.room.id,
+      sessionId: session.id,
+    });
+
+    return { message: 'Session cancelled successfully' };
   }
 
   /**
@@ -417,11 +496,40 @@ export class LiveSessionService implements OnModuleDestroy {
       throw new BadRequestException('Session has already ended');
     }
 
+    // Cancel pending reminder job if any
+    try {
+      const job = await this.sessionQueue.getJob(`reminder-${session.id}`);
+      if (job) {
+        await job.remove();
+        this.logger.log(`Cancelled pending reminder job for session ${session.id}`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to cancel reminder job: ${err.message}`);
+    }
+
     session.status = SessionStatus.LIVE;
     session.startedAt = new Date();
 
     const updated = await this.sessionRepository.save(session);
     this.logger.log(`Session started: ${updated.id}`);
+
+    // Ensure LiveKit room
+    await this.livekitService.ensureSessionRoom(updated.id).catch((err) => {
+      this.logger.error(`Failed to ensure LiveKit room for session ${updated.id}: ${err.message}`);
+    });
+
+    // Send started notifications
+    await this.notificationService.createLiveSessionStartedNotifications(updated, userId).catch((err) => {
+      this.logger.error(`Failed to send session-started notifications: ${err.message}`);
+    });
+
+    // Notify communications
+    await this.notifyCommunications('session-started', {
+      roomId: updated.room.id,
+      sessionId: updated.id,
+      status: updated.status,
+    });
+
     return this.formatSessionResponse(updated);
   }
 
@@ -626,6 +734,59 @@ export class LiveSessionService implements OnModuleDestroy {
     });
 
     return this.formatSessionResponse(refreshed ?? session);
+  }
+
+  async kickAttendee(sessionId: string, hostUserId: string, targetUserId: string) {
+    const session = await this.sessionRepository.findOne({
+      where: { id: sessionId },
+      relations: ['room', 'room.admin', 'host', 'attendees', 'attendees.user'],
+    });
+
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.host?.id !== hostUserId && (session.room?.admin as any)?.id !== hostUserId) {
+      throw new BadRequestException('Only the host can kick attendees');
+    }
+    if (targetUserId === hostUserId) {
+      throw new BadRequestException('Cannot kick yourself');
+    }
+
+    const attendee = session.attendees?.find((a) => a.user?.id === targetUserId && !a.leftAt);
+    if (!attendee) {
+      throw new NotFoundException('Attendee not found or already left');
+    }
+
+    attendee.leftAt = new Date();
+    await this.attendeeRepository.save(attendee);
+
+    this.logger.log(`Host ${hostUserId} kicked user ${targetUserId} from session ${sessionId}`);
+
+    return { ok: true, kickedUserId: targetUserId };
+  }
+
+  async getAttendees(id: string) {
+    const session = await this.sessionRepository.findOne({
+      where: { id },
+      relations: ['attendees', 'attendees.user'],
+    });
+    if (!session) throw new NotFoundException('Session not found');
+
+    return {
+      sessionId: session.id,
+      attendees: (session.attendees ?? []).map((a) => ({
+        id: a.id,
+        joinedAt: a.joinedAt,
+        leftAt: a.leftAt,
+        focusScore: a.focusScore,
+        user: a.user
+          ? {
+              id: a.user.id,
+              firstName: (a.user as any).firstName,
+              lastName: (a.user as any).lastName,
+              image: (a.user as any).image,
+            }
+          : null,
+      })),
+    };
   }
 
   async getSummary(id: string, userId: string) {

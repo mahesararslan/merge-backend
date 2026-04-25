@@ -114,16 +114,21 @@ export class FirebaseService implements OnModuleInit {
           title: payload.title,
           body: payload.body,
         },
-        data: {
-          ...payload.data,
-        },
         webpush: {
           headers: {
             Urgency: 'high',
           },
+          notification: {
+            title: payload.title,
+            body: payload.body,
+            icon: '/icon-192x192.png', // path to your app icon
+          },
           fcmOptions: {
             link: payload.data?.actionUrl || '/',
           },
+        },
+        data: {
+          ...payload.data,
         },
       }));
 

@@ -118,11 +118,11 @@ export class FirebaseService implements OnModuleInit {
           headers: {
             Urgency: 'high',
           },
-          notification: {
-            title: payload.title,
-            body: payload.body,
-            icon: 'https://www.mergeedu.app/logo.svg', // path to your app icon
-          },
+          // notification: {
+          //   title: payload.title,
+          //   body: payload.body,
+          //   icon: 'https://www.mergeedu.app/logo.svg', // path to your app icon
+          // },
           fcmOptions: {
             link: payload.data?.actionUrl || '/',
           },

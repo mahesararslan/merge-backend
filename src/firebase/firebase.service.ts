@@ -121,7 +121,7 @@ export class FirebaseService implements OnModuleInit {
           notification: {
             title: payload.title,
             body: payload.body,
-            icon: 'https://www.mergeedu.app/logo.svg', // path to your app icon
+            icon: '/icon-192x192.png', // path to your app icon
           },
           fcmOptions: {
             link: payload.data?.actionUrl || '/',

@@ -22,8 +22,6 @@ export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
       host,
       port,
       ...(password && { password }),
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
       retryStrategy: (times: number) => Math.min(times * 200, 2000),
     });
 
@@ -32,10 +30,7 @@ export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    if (this.redis) {
-      await this.redis.quit();
-      this.logger.log('Canvas Redis connection closed');
-    }
+    await this.redis?.quit();
   }
 
   async setHost(sessionId: string, hostUserId: string): Promise<void> {

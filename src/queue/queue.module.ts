@@ -16,9 +16,11 @@ import Redis from 'ioredis';
         const commonOptions: any = {
           maxRetriesPerRequest: null,
           enableReadyCheck: false,
-          connectTimeout: 20000,
+          keepAlive: 30000,
+          family: 4,
+          connectTimeout: 30000,
           retryStrategy: (times: number) => {
-            return Math.min(times * 200, 5000);
+            return Math.min(times * 100, 5000);
           },
         };
 
@@ -27,18 +29,16 @@ import Redis from 'ioredis';
         }
 
         return {
-          // We use createClient to ensure EVERY connection (client, sub, bclient)
-          // gets the exact same robust configuration required for Upstash.
           createClient: (type: 'client' | 'subscriber' | 'bclient') => {
-            if (url) {
-              return new Redis(url, commonOptions);
-            }
-            return new Redis({
-              host,
-              port,
-              ...(password && { password }),
-              ...commonOptions,
+            const client = url 
+              ? new Redis(url, commonOptions)
+              : new Redis({ host, port, ...(password && { password }), ...commonOptions });
+            
+            client.on('error', (err) => {
+              if (err.message?.includes('max retries')) return;
+              new Logger('BullRedis').error(`Queue Redis Error (${type}): ${err.message}`);
             });
+            return client;
           },
           prefix: 'bull',
           defaultJobOptions: {

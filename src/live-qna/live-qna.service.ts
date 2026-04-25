@@ -3,9 +3,15 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository, In } from 'typeorm';
+import axios from 'axios';
+import Redis from 'ioredis';
 import { LiveQnaQuestion, LiveQnaQuestionStatus } from '../entities/live-qna-question.entity';
 import { LiveQnaVote } from '../entities/live-qna-vote.entity';
 import { User } from '../entities/user.entity';
@@ -35,12 +41,18 @@ export interface LiveQnaQuestionResponse {
     image?: string | null;
   } | null;
   answeredAt?: Date | null;
+  aiAnswer?: string | null;
+  aiAnswerSources?: string[] | null;
+  aiAnsweredAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 @Injectable()
-export class LiveQnaService {
+export class LiveQnaService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(LiveQnaService.name);
+  private redis: Redis;
+
   constructor(
     @InjectRepository(LiveQnaQuestion)
     private readonly questionRepository: Repository<LiveQnaQuestion>,
@@ -52,7 +64,28 @@ export class LiveQnaService {
     private readonly roomRepository: Repository<Room>,
     @InjectRepository(LiveSession)
     private readonly sessionRepository: Repository<LiveSession>,
+    private readonly configService: ConfigService,
   ) {}
+
+  onModuleInit() {
+    const host = this.configService.get<string>('REDIS_HOST', 'localhost');
+    const port = this.configService.get<number>('REDIS_PORT', 6379);
+    const password = this.configService.get<string>('REDIS_PASSWORD', '');
+
+    this.redis = new Redis({
+      host,
+      port,
+      ...(password && { password }),
+      retryStrategy: (times: number) => Math.min(times * 200, 2000),
+    });
+
+    this.redis.on('ready', () => this.logger.log('LiveQna Redis connected'));
+    this.redis.on('error', (err) => this.logger.error('LiveQna Redis error', err.message));
+  }
+
+  async onModuleDestroy() {
+    await this.redis?.quit();
+  }
 
   async listQuestions(
     roomId: string,
@@ -250,6 +283,58 @@ export class LiveQnaService {
     );
   }
 
+  async askAiBot(
+    roomId: string,
+    sessionId: string,
+    questionId: string,
+    adminUserId: string,
+  ): Promise<LiveQnaQuestionResponse> {
+    const question = await this.loadQuestionOrFail(questionId, roomId, sessionId);
+
+    const aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL', 'http://localhost:8001');
+    const aiServiceApiKey = this.configService.get<string>('AI_SERVICE_API_KEY', '');
+
+    let answer = '';
+    let sources: string[] = [];
+
+    try {
+      const response = await axios.post(
+        `${aiServiceUrl}/query`,
+        { query: question.content, user_id: adminUserId, room_ids: [roomId] },
+        {
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': aiServiceApiKey },
+          timeout: 60000,
+        },
+      );
+      answer = response.data?.answer ?? '';
+      sources = (response.data?.sources ?? [])
+        .map((s: any) => s.section_title)
+        .filter(Boolean);
+    } catch (err: any) {
+      this.logger.error(`askAiBot: FastAPI call failed — ${err?.message}`);
+      throw new BadRequestException('AI service failed to generate an answer');
+    }
+
+    question.aiAnswer = answer;
+    question.aiAnswerSources = sources;
+    question.aiAnsweredAt = new Date();
+    const saved = await this.questionRepository.save(question);
+
+    const hasVoted = await this.userHasVoted(questionId, adminUserId);
+    const responseObj = this.toResponse(saved, adminUserId, hasVoted);
+
+    try {
+      await this.redis.publish(
+        'live-qna',
+        JSON.stringify({ type: 'question-updated', roomId, sessionId, data: responseObj }),
+      );
+    } catch (err: any) {
+      this.logger.error(`askAiBot: Redis publish failed — ${err?.message}`);
+    }
+
+    return responseObj;
+  }
+
   async removeQuestion(
     roomId: string,
     sessionId: string,
@@ -345,6 +430,9 @@ export class LiveQnaService {
           }
         : null,
       answeredAt: question.answeredAt ?? null,
+      aiAnswer: question.aiAnswer ?? null,
+      aiAnswerSources: question.aiAnswerSources ?? null,
+      aiAnsweredAt: question.aiAnsweredAt ?? null,
       createdAt: question.createdAt,
       updatedAt: question.updatedAt,
     };

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 import { LiveQnaController } from './live-qna.controller';
 import { LiveQnaService } from './live-qna.service';
 import { LiveQnaQuestion } from '../entities/live-qna-question.entity';
@@ -11,6 +12,7 @@ import { RoomMember } from '../entities/room-member.entity';
 
 @Module({
   imports: [
+    ConfigModule,
     TypeOrmModule.forFeature([
       LiveQnaQuestion,
       LiveQnaVote,

@@ -126,6 +126,20 @@ export class LiveQnaController {
     );
   }
 
+  @Post(':roomId/live-sessions/:sessionId/live-qna/questions/:questionId/ask-ai')
+  @RoomRoles(RoomMemberRole.ADMIN)
+  async askAiBot(
+    @Param('roomId') roomId: string,
+    @Param('sessionId') sessionId: string,
+    @Param('questionId') questionId: string,
+    @Request() req: any,
+  ): Promise<LiveQnaQuestionResponse> {
+    this.logger.log(
+      `askAiBot roomId=${roomId} sessionId=${sessionId} questionId=${questionId} userId=${req.user?.id}`,
+    );
+    return this.liveQnaService.askAiBot(roomId, sessionId, questionId, req.user.id);
+  }
+
   @Delete(':roomId/live-sessions/:sessionId/live-qna/questions/:questionId')
   @RoomRoles(RoomMemberRole.ADMIN)
   async deleteQuestion(

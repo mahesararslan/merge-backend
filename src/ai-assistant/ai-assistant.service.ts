@@ -44,7 +44,7 @@ export class AiAssistantService {
   }
 
   /** Maximum number of attachments we allow per conversation. */
-  private static readonly MAX_ATTACHMENTS_PER_CONVERSATION = 2;
+  private static readonly MAX_ATTACHMENTS_PER_CONVERSATION = 3;
 
   /**
    * One-time migration for conversations created before multi-file

@@ -74,6 +74,15 @@ export class LiveQnaQuestion {
   })
   answeredAt?: Date | null;
 
+  @Column({ name: 'ai_answer', type: 'text', nullable: true })
+  aiAnswer: string | null;
+
+  @Column({ name: 'ai_answer_sources', type: 'jsonb', nullable: true })
+  aiAnswerSources: string[] | null;
+
+  @Column({ name: 'ai_answered_at', type: 'timestamptz', nullable: true })
+  aiAnsweredAt: Date | null;
+
   @OneToMany(() => LiveQnaVote, (vote: LiveQnaVote) => vote.question)
   votes: LiveQnaVote[];
 

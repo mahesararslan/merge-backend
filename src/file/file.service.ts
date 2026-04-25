@@ -66,10 +66,12 @@ export class FileService {
       let documentType = 'pdf';
       if (mimeType.includes('pdf')) {
         documentType = 'pdf';
-      } else if (mimeType.includes('word') || mimeType.includes('document')) {
-        documentType = 'docx';
       } else if (mimeType.includes('presentation')) {
+        // Must come before the 'document' check — .pptx MIME type contains
+        // 'officedocument' which would otherwise match the docx branch first.
         documentType = 'pptx';
+      } else if (mimeType.includes('word') || mimeType.includes('wordprocessingml')) {
+        documentType = 'docx';
       } else if (mimeType.includes('text/plain')) {
         documentType = 'txt';
       }

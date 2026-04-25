@@ -56,12 +56,19 @@ export class FileService {
       const aiServiceUrl = this.configService.get('AI_SERVICE_URL') || 'http://localhost:8001';
       
       // Determine document type from MIME type
+      // Note: old binary .ppt (application/vnd.ms-powerpoint) is not supported —
+      // python-pptx only handles ZIP-based .pptx. Reject early with a clear message.
+      if (mimeType === 'application/vnd.ms-powerpoint' || mimeType.includes('vnd.ms-powerpoint')) {
+        this.logger.warn(`Old .ppt binary format rejected for file ${fileId} — not supported by extraction engine`);
+        return;
+      }
+
       let documentType = 'pdf';
       if (mimeType.includes('pdf')) {
         documentType = 'pdf';
       } else if (mimeType.includes('word') || mimeType.includes('document')) {
         documentType = 'docx';
-      } else if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) {
+      } else if (mimeType.includes('presentation')) {
         documentType = 'pptx';
       } else if (mimeType.includes('text/plain')) {
         documentType = 'txt';
@@ -489,7 +496,8 @@ export class FileService {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
       'application/msword', // .doc
       'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
-      'application/vnd.ms-powerpoint', // .ppt
+      // Note: 'application/vnd.ms-powerpoint' (.ppt old binary) is intentionally excluded —
+      // python-pptx cannot parse the old OLE binary format, only ZIP-based .pptx.
       'text/plain', // .txt
     ];
     

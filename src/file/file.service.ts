@@ -55,25 +55,40 @@ export class FileService {
     try {
       const aiServiceUrl = this.configService.get('AI_SERVICE_URL') || 'http://localhost:8001';
       
-      // Determine document type from MIME type
-      // Note: old binary .ppt (application/vnd.ms-powerpoint) is not supported —
-      // python-pptx only handles ZIP-based .pptx. Reject early with a clear message.
-      if (mimeType === 'application/vnd.ms-powerpoint' || mimeType.includes('vnd.ms-powerpoint')) {
-        this.logger.warn(`Old .ppt binary format rejected for file ${fileId} — not supported by extraction engine`);
+      // Exact MIME → document_type mapping.
+      // Substring matching is avoided because many Office MIME types share
+      // tokens (e.g. .pptx contains 'officedocument' which would match 'document').
+      const MIME_TO_DOC_TYPE: Record<string, string> = {
+        'application/pdf': 'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+        'text/plain': 'txt',
+        'text/csv': 'csv',
+        'application/csv': 'csv',
+      };
+
+      // Old binary Office formats — reject with a clear message so the user
+      // knows to convert rather than getting a silent ingestion failure.
+      const UNSUPPORTED_MIME: Record<string, string> = {
+        'application/msword': '.doc (old Word binary) — please save as .docx and re-upload',
+        'application/vnd.ms-powerpoint': '.ppt (old PowerPoint binary) — please save as .pptx and re-upload',
+        'application/vnd.ms-excel': '.xls (old Excel binary) — please save as .xlsx and re-upload',
+      };
+
+      if (UNSUPPORTED_MIME[mimeType]) {
+        this.logger.warn(
+          `Unsupported format for file ${fileId}: ${UNSUPPORTED_MIME[mimeType]}`,
+        );
         return;
       }
 
-      let documentType = 'pdf';
-      if (mimeType.includes('pdf')) {
-        documentType = 'pdf';
-      } else if (mimeType.includes('presentation')) {
-        // Must come before the 'document' check — .pptx MIME type contains
-        // 'officedocument' which would otherwise match the docx branch first.
-        documentType = 'pptx';
-      } else if (mimeType.includes('word') || mimeType.includes('wordprocessingml')) {
-        documentType = 'docx';
-      } else if (mimeType.includes('text/plain')) {
-        documentType = 'txt';
+      const documentType = MIME_TO_DOC_TYPE[mimeType];
+      if (!documentType) {
+        this.logger.warn(
+          `No document_type mapping for MIME type "${mimeType}" (file ${fileId}) — skipping embedding`,
+        );
+        return;
       }
 
       this.logger.log(`Triggering embedding generation for file ${fileId} from ${s3Url}`);
@@ -494,13 +509,13 @@ export class FileService {
    */
   private isDocumentTypeSupported(contentType: string): boolean {
     const supportedTypes = [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-      'application/msword', // .doc
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
-      // Note: 'application/vnd.ms-powerpoint' (.ppt old binary) is intentionally excluded —
-      // python-pptx cannot parse the old OLE binary format, only ZIP-based .pptx.
-      'text/plain', // .txt
+      'application/pdf',                                                                         // .pdf
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',                 // .docx
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',               // .pptx
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',                       // .xlsx
+      'text/plain',                                                                              // .txt
+      'text/csv',                                                                                // .csv
+      'application/csv',                                                                         // .csv (alt)
     ];
     
     return supportedTypes.some(type => contentType.includes(type));

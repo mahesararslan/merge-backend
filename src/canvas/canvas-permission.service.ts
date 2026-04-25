@@ -19,17 +19,19 @@ export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
-    const host = this.configService.get<string>('REDIS_HOST', 'localhost');
-    const port = this.configService.get<number>('REDIS_PORT', 6379);
-    const password = this.configService.get<string>('REDIS_PASSWORD', '');
+    // const host = this.configService.get<string>('REDIS_HOST', 'localhost');
+    // const port = this.configService.get<number>('REDIS_PORT', 6379);
+    // const password = this.configService.get<string>('REDIS_PASSWORD', '');
+    const url = this.configService.get<string>('REDIS_URL', '');
+    this.redis = new Redis(url)
 
-    this.redis = new Redis({
-      host,
-      port,
-      ...(password && { password }),
-      tls: {},
-      retryStrategy: (times: number) => Math.min(times * 200, 2000),
-    });
+    // this.redis = new Redis({
+    //   host,
+    //   port,
+    //   ...(password && { password }),
+    //   tls: {},
+    //   retryStrategy: (times: number) => Math.min(times * 200, 2000),
+    // });
 
     this.redis.on('ready', () => this.logger.log('Canvas Redis connected'));
     this.redis.on('error', (err) =>

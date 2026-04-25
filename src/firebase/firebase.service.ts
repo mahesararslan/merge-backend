@@ -15,7 +15,9 @@ export class FirebaseService implements OnModuleInit {
       ?.replace(/\\n/g, '\n');
 
     if (!privateKey) {
-      this.logger.warn('Firebase credentials not configured. FCM will not work.');
+      this.logger.warn(
+        'Firebase credentials not configured. FCM will not work.',
+      );
       return;
     }
 
@@ -55,31 +57,35 @@ export class FirebaseService implements OnModuleInit {
     }
 
     try {
-     const message: admin.messaging.Message = {
-  token,
-  data: {
-    title: payload.title,
-    body: payload.body,
-    ...payload.data,
-  },
-  webpush: {
-    headers: {
-      Urgency: 'high',
-    },
-    fcmOptions: {
-      link: payload.data?.actionUrl || '/',
-    },
-  },
-};
+      const message: admin.messaging.Message = {
+        token,
+        data: {
+          title: payload.title,
+          body: payload.body,
+          ...payload.data,
+        },
+        webpush: {
+          headers: {
+            Urgency: 'high',
+          },
+          fcmOptions: {
+            link: payload.data?.actionUrl || '/',
+          },
+        },
+      };
 
       await admin.messaging().send(message);
       return true;
     } catch (error) {
       const errorCode = error?.code || error?.errorInfo?.code;
       if (errorCode && FirebaseService.INVALID_TOKEN_ERRORS.has(errorCode)) {
-        this.logger.warn(`Invalid FCM token (${errorCode}): ${token.slice(0, 20)}...`);
+        this.logger.warn(
+          `Invalid FCM token (${errorCode}): ${token.slice(0, 20)}...`,
+        );
       } else {
-        this.logger.error(`Failed to send FCM to token ${token.slice(0, 20)}...: ${error.message}`);
+        this.logger.error(
+          `Failed to send FCM to token ${token.slice(0, 20)}...: ${error.message}`,
+        );
       }
       return false;
     }
@@ -92,17 +98,23 @@ export class FirebaseService implements OnModuleInit {
       body: string;
       data?: { [key: string]: string };
     },
-  ): Promise<{ successCount: number; failureCount: number; invalidTokens: string[] }> {
+  ): Promise<{
+    successCount: number;
+    failureCount: number;
+    invalidTokens: string[];
+  }> {
     if (!this.firebaseApp || tokens.length === 0) {
       return { successCount: 0, failureCount: 0, invalidTokens: [] };
     }
 
     try {
-      const messages: admin.messaging.Message[] = tokens.map(token => ({
+      const messages: admin.messaging.Message[] = tokens.map((token) => ({
         token,
-        data: {
+        notification: {
           title: payload.title,
           body: payload.body,
+        },
+        data: {
           ...payload.data,
         },
         webpush: {
@@ -127,11 +139,18 @@ export class FirebaseService implements OnModuleInit {
         } else {
           failureCount++;
           const errorCode = resp.error?.code;
-          if (errorCode && FirebaseService.INVALID_TOKEN_ERRORS.has(errorCode)) {
+          if (
+            errorCode &&
+            FirebaseService.INVALID_TOKEN_ERRORS.has(errorCode)
+          ) {
             invalidTokens.push(tokens[idx]);
-            this.logger.warn(`Invalid FCM token detected (${errorCode}): ${tokens[idx].slice(0, 20)}...`);
+            this.logger.warn(
+              `Invalid FCM token detected (${errorCode}): ${tokens[idx].slice(0, 20)}...`,
+            );
           } else {
-            this.logger.error(`FCM send failed for token ${tokens[idx].slice(0, 20)}...: ${resp.error?.message}`);
+            this.logger.error(
+              `FCM send failed for token ${tokens[idx].slice(0, 20)}...: ${resp.error?.message}`,
+            );
           }
         }
       });
@@ -142,7 +161,11 @@ export class FirebaseService implements OnModuleInit {
       return { successCount, failureCount, invalidTokens };
     } catch (error) {
       this.logger.error(`Failed to send FCM multicast: ${error.message}`);
-      return { successCount: 0, failureCount: tokens.length, invalidTokens: [] };
+      return {
+        successCount: 0,
+        failureCount: tokens.length,
+        invalidTokens: [],
+      };
     }
   }
 }

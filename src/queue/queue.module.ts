@@ -6,25 +6,49 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
   imports: [
     BullModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        redis: {
-          host: configService.get('REDIS_HOST') || 'localhost',
-          port: parseInt(configService.get('REDIS_PORT') || '6379'),
-          password: configService.get('REDIS_PASSWORD'),
-          maxRetriesPerRequest: 3,
+      useFactory: async (configService: ConfigService) => {
+        const url = configService.get<string>('REDIS_URL');
+        const redisOptions: any = {
+          maxRetriesPerRequest: null,
           enableReadyCheck: false,
-          connectTimeout: 10000,
+          connectTimeout: 15000,
           retryStrategy: (times: number) => {
-            if (times > 3) return null;
-            return Math.min(times * 200, 2000);
+            return Math.min(times * 200, 5000);
           },
-        },
-        prefix: 'bull',
-        defaultJobOptions: {
-          removeOnComplete: 100,
-          removeOnFail: 200,
-        },
-      }),
+        };
+
+        if (url?.startsWith('rediss://')) {
+          redisOptions.tls = { rejectUnauthorized: false };
+        }
+
+        if (url) {
+          // If URL is provided, we pass it as the first argument to Bull (via 'redis' property)
+          // NestJS Bull handles passing this string + redisOptions to ioredis.
+          return {
+            redis: url,
+            ...redisOptions,
+            prefix: 'bull',
+            defaultJobOptions: {
+              removeOnComplete: 100,
+              removeOnFail: 200,
+            },
+          };
+        }
+
+        return {
+          redis: {
+            host: configService.get('REDIS_HOST') || 'localhost',
+            port: parseInt(configService.get('REDIS_PORT') || '6379'),
+            password: configService.get('REDIS_PASSWORD'),
+            ...redisOptions,
+          },
+          prefix: 'bull',
+          defaultJobOptions: {
+            removeOnComplete: 100,
+            removeOnFail: 200,
+          },
+        };
+      },
       inject: [ConfigService],
     }),
     BullModule.registerQueue({

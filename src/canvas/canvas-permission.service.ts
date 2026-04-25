@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
@@ -14,19 +19,37 @@ export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
-    const host = this.configService.get<string>('REDIS_HOST', 'localhost');
-    const port = this.configService.get<number>('REDIS_PORT', 6379);
-    const password = this.configService.get<string>('REDIS_PASSWORD', '');
-
-    this.redis = new Redis({
-      host,
-      port,
-      ...(password && { password }),
+    const url = this.configService.get<string>('REDIS_URL');
+    const options: any = {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
       retryStrategy: (times: number) => Math.min(times * 200, 2000),
-    });
+    };
+
+    // Enable TLS for Upstash (rediss:// protocol)
+    if (url?.startsWith('rediss://')) {
+      options.tls = { rejectUnauthorized: false };
+    }
+
+    if (url) {
+      this.redis = new Redis(url, options);
+    } else {
+      const host = this.configService.get<string>('REDIS_HOST', 'localhost');
+      const port = this.configService.get<number>('REDIS_PORT', 6379);
+      const password = this.configService.get<string>('REDIS_PASSWORD', '');
+
+      this.redis = new Redis({
+        host,
+        port,
+        ...(password && { password }),
+        ...options,
+      });
+    }
 
     this.redis.on('ready', () => this.logger.log('Canvas Redis connected'));
-    this.redis.on('error', (err) => this.logger.error('Canvas Redis error', err.message));
+    this.redis.on('error', (err) =>
+      this.logger.error('Canvas Redis error', err.message),
+    );
   }
 
   async onModuleDestroy() {
@@ -46,17 +69,28 @@ export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
     return host === userId;
   }
 
-  async grantDraw(sessionId: string, userId: string): Promise<{ ok: boolean; reason?: string }> {
-    const isAlready = await this.redis.sismember(DRAWERS_KEY(sessionId), userId);
+  async grantDraw(
+    sessionId: string,
+    userId: string,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const isAlready = await this.redis.sismember(
+      DRAWERS_KEY(sessionId),
+      userId,
+    );
     if (isAlready) return { ok: true };
 
     const count = await this.redis.scard(DRAWERS_KEY(sessionId));
     if (count >= MAX_DRAWERS) {
-      return { ok: false, reason: 'Maximum active drawers reached. Remove someone first.' };
+      return {
+        ok: false,
+        reason: 'Maximum active drawers reached. Remove someone first.',
+      };
     }
 
     await this.redis.sadd(DRAWERS_KEY(sessionId), userId);
-    this.logger.log(`Granted draw to ${userId} in session ${sessionId} (${count + 1}/${MAX_DRAWERS})`);
+    this.logger.log(
+      `Granted draw to ${userId} in session ${sessionId} (${count + 1}/${MAX_DRAWERS})`,
+    );
     return { ok: true };
   }
 

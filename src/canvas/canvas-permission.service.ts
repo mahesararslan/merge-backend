@@ -1,5 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 
 const MAX_DRAWERS = 5;
@@ -7,31 +6,10 @@ const DRAWERS_KEY = (sid: string) => `canvas:drawers:${sid}`;
 const HOST_KEY = (sid: string) => `canvas:host:${sid}`;
 
 @Injectable()
-export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
-  private redis: Redis;
+export class CanvasPermissionService {
   private readonly logger = new Logger(CanvasPermissionService.name);
 
-  constructor(private configService: ConfigService) {}
-
-  async onModuleInit() {
-    const host = this.configService.get<string>('REDIS_HOST', 'localhost');
-    const port = this.configService.get<number>('REDIS_PORT', 6379);
-    const password = this.configService.get<string>('REDIS_PASSWORD', '');
-
-    this.redis = new Redis({
-      host,
-      port,
-      ...(password && { password }),
-      retryStrategy: (times: number) => Math.min(times * 200, 2000),
-    });
-
-    this.redis.on('ready', () => this.logger.log('Canvas Redis connected'));
-    this.redis.on('error', (err) => this.logger.error('Canvas Redis error', err.message));
-  }
-
-  async onModuleDestroy() {
-    await this.redis?.quit();
-  }
+  constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
 
   async setHost(sessionId: string, hostUserId: string): Promise<void> {
     await this.redis.set(HOST_KEY(sessionId), hostUserId);

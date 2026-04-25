@@ -26,6 +26,8 @@ import { QueryUserFeedDto } from './dto/query-user-feed.dto';
 import { FolderService } from '../folder/folder.service';
 import { FileService } from '../file/file.service';
 import { BulkDeleteContentDto } from './dto/bulk-delete-content.dto';
+import { RewardsService } from '../rewards/rewards.service';
+import { ChallengeAction } from '../entities/challenge-definition.entity';
 
 @Injectable()
 export class RoomService {
@@ -47,6 +49,7 @@ export class RoomService {
     private folderService: FolderService,
     @Inject(forwardRef(() => FileService))
     private fileService: FileService,
+    private rewardsService: RewardsService,
   ) {}
 
   private generateRoomCode(): string {
@@ -63,6 +66,14 @@ export class RoomService {
     const admin = await this.userRepository.findOne({ where: { id: adminId } });
     if (!admin) {
       throw new NotFoundException('Admin user not found');
+    }
+
+    // Enforce plan room limit
+    const { PLAN_LIMITS } = await import('../subscription/plan-limits.const');
+    const roomCount = await this.roomRepository.count({ where: { admin: { id: adminId } } });
+    const limit = PLAN_LIMITS[admin.subscriptionTier].roomLimit;
+    if (roomCount >= limit) {
+      throw new ForbiddenException(`Room limit reached for your plan (${limit} rooms). Please upgrade.`);
     }
 
     // Generate unique room code
@@ -84,6 +95,8 @@ export class RoomService {
     });
 
     const savedRoom = await this.roomRepository.save(room);
+    this.rewardsService.onAction(adminId, ChallengeAction.ROOM_CREATED).catch(() => {});
+    this.rewardsService.onAction(adminId, ChallengeAction.ROOM_JOINED).catch(() => {});
     return this.formatRoomResponse(savedRoom);
   }
 
@@ -433,6 +446,7 @@ export class RoomService {
         user,
       });
       await this.roomMemberRepository.save(roomMember);
+      this.rewardsService.onAction(userId, ChallengeAction.ROOM_JOINED).catch(() => {});
 
       return {
         success: true,

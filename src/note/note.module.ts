@@ -8,6 +8,8 @@ import { User } from '../entities/user.entity';
 import { Folder } from '../entities/folder.entity';
 import { Room } from '../entities/room.entity';
 import { RoomMember } from '../entities/room-member.entity';
+import { forwardRef } from '@nestjs/common';
+import { RewardsModule } from '../rewards/rewards.module';
 
 @Module({
   imports: [
@@ -16,8 +18,9 @@ import { RoomMember } from '../entities/room-member.entity';
       User,
       Folder,
       Room,          
-      RoomMember,    
+      RoomMember,
     ]),
+    forwardRef(() => RewardsModule),
   ],
   controllers: [NoteController],
   providers: [NoteService],

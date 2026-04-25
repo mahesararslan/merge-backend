@@ -672,4 +672,29 @@ export class NotificationService {
     );
     this.logger.log(`Sent ${type} reminder push notification for calendar event ${event.id}`);
   }
+
+  async sendNotificationToUser(
+    userId: string,
+    content: string,
+    metadata: Record<string, any> = {},
+  ): Promise<void> {
+    try {
+      const notification = this.notificationRepository.create({
+        user: { id: userId } as any,
+        content,
+        metadata,
+        isRead: false,
+      });
+      const saved = await this.notificationRepository.save(notification);
+      await this.sendFcmNotifications(
+        [userId],
+        'Merge',
+        content,
+        { type: 'general', notificationId: saved.id, ...Object.fromEntries(Object.entries(metadata).map(([k, v]) => [k, String(v)])) },
+        [saved.id],
+      );
+    } catch (error: any) {
+      this.logger.error(`Failed to send notification to user ${userId}: ${error.message}`);
+    }
+  }
 }

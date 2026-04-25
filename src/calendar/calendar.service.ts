@@ -9,6 +9,8 @@ import { CalendarEvent, TaskStatus } from '../entities/calendar-event.entity';
 import { User } from '../entities/user.entity';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from './dto/update-calendar-event.dto';
+import { RewardsService } from '../rewards/rewards.service';
+import { ChallengeAction } from '../entities/challenge-definition.entity';
 
 @Injectable()
 export class CalendarService {
@@ -23,6 +25,7 @@ export class CalendarService {
 		private roomMemberRepository: Repository<RoomMember>,
 		@InjectQueue('calendar')
 		private calendarQueue: Queue,
+		private rewardsService: RewardsService,
 	) {}
 
 	async createForRoomMembers(
@@ -134,6 +137,12 @@ export class CalendarService {
 		if (!event) throw new NotFoundException('Event not found');
 		if (event.owner.id !== userId) throw new ForbiddenException('Forbidden');
 		event.taskStatus = dto.status;
-		return this.calendarEventRepository.save(event);
+		const saved = await this.calendarEventRepository.save(event);
+		if (dto.status === TaskStatus.COMPLETED) {
+			this.rewardsService.onAction(userId, ChallengeAction.CALENDAR_TASK_COMPLETED).catch((e) =>
+				this.logger.error(`Rewards tracking error: ${e.message}`),
+			);
+		}
+		return saved;
 	}
 }

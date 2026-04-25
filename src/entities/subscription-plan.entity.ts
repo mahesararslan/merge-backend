@@ -1,16 +1,10 @@
-// src/entities/subscription-plan.entity.ts
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
-export enum PlanType {
+export enum PlanTier {
   FREE = 'free',
   BASIC = 'basic',
   PRO = 'pro',
+  MAX = 'max',
 }
 
 @Entity('subscription_plans')
@@ -18,39 +12,36 @@ export class SubscriptionPlan {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
-  name: string;
+  @Column({ type: 'enum', enum: PlanTier, unique: true })
+  name: PlanTier;
 
-  @Column({ type: 'enum', enum: PlanType })
-  type: PlanType;
+  @Column()
+  displayName: string;
 
-  @Column({ nullable: true })
-  description: string;
-
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'numeric' })
   priceMonthly: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
-  priceYearly: number;
+  @Column({ default: 'PKR' })
+  currency: string;
 
-  @Column('simple-json')
-  features: {
-    maxRooms: number;
-    maxMembersPerRoom: number;
-    maxStorageGB: number;
-    maxSessionDurationMinutes: number;
-    maxAttendeesPerSession: number;
-    maxQuizzesPerRoom: number;
-    transcriptionEnabled: boolean;
-    aiSummaryEnabled: boolean;
-  };
+  @Column({ nullable: true })
+  lsVariantId: string;
+
+  @Column({ type: 'simple-json' })
+  features: string[];
+
+  @Column()
+  roomLimit: number;
+
+  @Column()
+  noteLimit: number;
+
+  @Column({ default: false })
+  hasLectureSummary: boolean;
+
+  @Column({ default: false })
+  hasFocusTracker: boolean;
 
   @Column({ default: true })
   isActive: boolean;
-
-  @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
 }

@@ -18,6 +18,8 @@ import { CanvasModule } from '../canvas/canvas.module';
 import { QueueModule } from '../queue/queue.module';
 import { NotificationModule } from '../notification/notification.module';
 import { LiveKitModule } from '../livekit/livekit.module';
+import { forwardRef } from '@nestjs/common';
+import { RewardsModule } from '../rewards/rewards.module';
 import { LiveSessionProcessor } from './live-session.processor';
 
 @Module({
@@ -39,6 +41,7 @@ import { LiveSessionProcessor } from './live-session.processor';
     QueueModule,
     NotificationModule,
     LiveKitModule,
+    forwardRef(() => RewardsModule),
   ],
   controllers: [LiveSessionController],
   providers: [LiveSessionService, LiveSessionProcessor, RoomRoleGuard],

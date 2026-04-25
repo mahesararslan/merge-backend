@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { Tag } from './tag.entity';
 import { UserAuth } from './user-auth.entity';
+import { PlanTier } from './subscription-plan.entity';
 
 export enum UserRole {
   INSTRUCTOR = 'instructor',
@@ -70,6 +71,9 @@ export class User {
     default: NotificationStatus.DEFAULT,
   })
   notificationStatus: NotificationStatus;
+
+  @Column({ type: 'enum', enum: PlanTier, default: PlanTier.FREE })
+  subscriptionTier: PlanTier;
 
   @OneToOne(() => UserAuth, (auth) => auth.user, { cascade: true, eager: true })
   auth: UserAuth;

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AssignmentService } from './assignment.service';
 import { AssignmentController } from './assignment.controller';
@@ -12,6 +12,7 @@ import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 import { NotificationModule } from '../notification/notification.module';
 import { QueueModule } from '../queue/queue.module';
 import { CalendarModule } from '../calendar/calendar.module';
+import { RewardsModule } from '../rewards/rewards.module';
 
 
 @Module({
@@ -26,6 +27,7 @@ import { CalendarModule } from '../calendar/calendar.module';
     NotificationModule,
     QueueModule,
     CalendarModule,
+    forwardRef(() => RewardsModule),
   ],
   controllers: [AssignmentController],
   providers: [AssignmentService, AssignmentProcessor, RoomRoleGuard],

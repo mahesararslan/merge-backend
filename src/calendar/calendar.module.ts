@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
 import { CalendarService } from './calendar.service';
@@ -8,12 +8,14 @@ import { CalendarEvent } from '../entities/calendar-event.entity';
 import { User } from '../entities/user.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { NotificationModule } from '../notification/notification.module';
+import { RewardsModule } from '../rewards/rewards.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([CalendarEvent, User, RoomMember]),
     BullModule.registerQueue({ name: 'calendar' }),
     NotificationModule,
+    forwardRef(() => RewardsModule),
   ],
   controllers: [CalendarController],
   providers: [CalendarService, CalendarProcessor],

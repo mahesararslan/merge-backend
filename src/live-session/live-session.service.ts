@@ -24,6 +24,8 @@ import { CanvasPermissionService } from '../canvas/canvas-permission.service';
 import { cleanupYjsRoom } from '../canvas/yjs-ws-server';
 import { NotificationService } from '../notification/notification.service';
 import { LiveKitService } from '../livekit/livekit.service';
+import { RewardsService } from '../rewards/rewards.service';
+import { ChallengeAction } from '../entities/challenge-definition.entity';
 
 @Injectable()
 export class LiveSessionService implements OnModuleDestroy {
@@ -54,6 +56,7 @@ export class LiveSessionService implements OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly transcriptionService: TranscriptionService,
     private readonly canvasPermissionService: CanvasPermissionService,
+    private readonly rewardsService: RewardsService,
   ) {
     this.communicationServiceUrl =
       this.configService.get<string>('COMMUNICATIONS_SERVER_URL') ||
@@ -155,6 +158,14 @@ export class LiveSessionService implements OnModuleDestroy {
   }
 
   private async processTranscriptionAsync(session: LiveSession): Promise<void> {
+    // Lecture summary is a Pro/Max feature — check host's subscription tier
+    const { PLAN_LIMITS } = await import('../subscription/plan-limits.const');
+    const hostTier = session.host?.subscriptionTier;
+    if (hostTier && !PLAN_LIMITS[hostTier].hasLectureSummary) {
+      this.logger.log(`Skipping lecture summary for session ${session.id}: host on ${hostTier} plan`);
+      return;
+    }
+
     const { text: transcript, language } = await this.transcriptionService.finalizeTranscript(session.id);
     if (!transcript) {
       this.logger.log(`No transcript for session ${session.id}, skipping notes generation`);
@@ -727,6 +738,7 @@ export class LiveSessionService implements OnModuleDestroy {
     this.cancelAutoEnd(session.id);
 
     this.logger.log(`User ${userId} joined session ${id}`);
+    this.rewardsService.onAction(userId, ChallengeAction.LIVE_SESSION_ATTENDED).catch(() => {});
 
     const refreshed = await this.sessionRepository.findOne({
       where: { id: session.id },
@@ -910,6 +922,7 @@ export class LiveSessionService implements OnModuleDestroy {
     await this.focusReportRepository.save(report);
     this.logger.log(`Focus report saved for user ${userId} in session ${sessionId} (score: ${dto.focusScore})`);
 
+    this.rewardsService.onAction(userId, ChallengeAction.FOCUS_SCORE, dto.focusScore).catch(() => {});
     return { ok: true, focusScore: dto.focusScore };
   }
 

@@ -31,6 +31,8 @@ import { TranscriptionModule } from './transcription/transcription.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { LiveQnaModule } from './live-qna/live-qna.module';
 import { CanvasModule } from './canvas/canvas.module';
+import { RewardsModule } from './rewards/rewards.module';
+import { SubscriptionModule } from './subscription/subscription.module';
 
 @Module({
   imports: [
@@ -82,6 +84,8 @@ import { CanvasModule } from './canvas/canvas.module';
     LiveKitModule,
     LiveQnaModule,
     CanvasModule,
+    RewardsModule,
+    SubscriptionModule,
   ],
   controllers: [AppController],
   providers: [

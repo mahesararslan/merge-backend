@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { QuizService } from './quiz.service';
 import { QuizController } from './quiz.controller';
@@ -12,6 +12,7 @@ import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 import { NotificationModule } from '../notification/notification.module';
 import { QueueModule } from 'src/queue/queue.module';
 import { CalendarModule } from '../calendar/calendar.module';
+import { RewardsModule } from '../rewards/rewards.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { CalendarModule } from '../calendar/calendar.module';
     QueueModule,
     NotificationModule,
     CalendarModule,
+    forwardRef(() => RewardsModule),
   ],
   controllers: [QuizController],
   providers: [QuizService, RoomRoleGuard],

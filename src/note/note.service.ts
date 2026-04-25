@@ -8,6 +8,8 @@ import { Folder, FolderType } from '../entities/folder.entity';
 import { CreateNoteDto } from './dto/create-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
 import { QueryNoteDto } from './dto/query-note.dto';
+import { RewardsService } from '../rewards/rewards.service';
+import { ChallengeAction } from '../entities/challenge-definition.entity';
 
 @Injectable()
 export class NoteService {
@@ -18,6 +20,7 @@ export class NoteService {
     private userRepository: Repository<User>,
     @InjectRepository(Folder)
     private folderRepository: Repository<Folder>,
+    private rewardsService: RewardsService,
   ) {}
 
   async create(createNoteDto: CreateNoteDto, userId: string): Promise<Note> {
@@ -27,6 +30,16 @@ export class NoteService {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    // Enforce plan note limit
+    const { PLAN_LIMITS } = await import('../subscription/plan-limits.const');
+    const limit = PLAN_LIMITS[user.subscriptionTier].noteLimit;
+    if (limit !== -1) {
+      const noteCount = await this.noteRepository.count({ where: { owner: { id: userId } } });
+      if (noteCount >= limit) {
+        throw new ForbiddenException(`Note limit reached for your plan (${limit} notes). Please upgrade.`);
+      }
     }
 
     let folder = null;
@@ -52,7 +65,9 @@ export class NoteService {
     note.title = createNoteDto.title;
     note.content = createNoteDto.content;
 
-    return this.noteRepository.save(note);
+    const saved = await this.noteRepository.save(note);
+    this.rewardsService.onAction(userId, ChallengeAction.NOTE_CREATED).catch(() => {});
+    return saved;
   }
 
   async findAll(queryDto: QueryNoteDto, userId: string): Promise<{

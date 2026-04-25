@@ -13,6 +13,9 @@ import { setupYjsWebSocket } from './canvas/yjs-ws-server';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Raw body for LemonSqueezy webhook signature verification — must be before JSON parser
+  app.use('/subscriptions/webhook', bodyParser.raw({ type: 'application/json' }));
+
   // Default body parser limit (1mb) for most routes
   app.use(bodyParser.json({ limit: '1mb' }));
   app.use(bodyParser.urlencoded({ limit: '1mb', extended: true }));

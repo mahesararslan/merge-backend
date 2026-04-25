@@ -17,6 +17,8 @@ import { QuizSubmissionStatus } from './enums/quiz-submission-status.enum';
 import { InstructorQuizStatus } from './enums/instructor-quiz-status.enum';
 import { NotificationService } from '../notification/notification.service';
 import { CalendarService } from '../calendar/calendar.service';
+import { RewardsService } from '../rewards/rewards.service';
+import { ChallengeAction } from '../entities/challenge-definition.entity';
 import { TaskCategory } from '../entities/calendar-event.entity';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
@@ -40,6 +42,7 @@ export class QuizService {
     private quizQueue: Queue,
     private notificationService: NotificationService,
     private calendarService: CalendarService,
+    private rewardsService: RewardsService,
   ) {}
 
   async create(createQuizDto: CreateQuizDto, userId: string) {
@@ -663,6 +666,7 @@ export class QuizService {
     });
 
     const savedAttempt = await this.attemptRepository.save(attempt);
+    this.rewardsService.onAction(userId, ChallengeAction.QUIZ_COMPLETED).catch(() => {});
     return this.formatAttemptResponse(savedAttempt);
   }
 

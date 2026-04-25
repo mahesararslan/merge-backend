@@ -23,6 +23,8 @@ import { InstructorAssignmentStatus } from './enums/instructor-assignment-status
 import { NotificationService } from '../notification/notification.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { TaskCategory } from '../entities/calendar-event.entity';
+import { RewardsService } from '../rewards/rewards.service';
+import { ChallengeAction } from '../entities/challenge-definition.entity';
 
 @Injectable()
 export class AssignmentService {
@@ -43,6 +45,7 @@ export class AssignmentService {
     private assignmentQueue: Queue,
     private notificationService: NotificationService,
     private calendarService: CalendarService,
+    private rewardsService: RewardsService,
   ) {
     // Test queue connection on startup
     this.assignmentQueue.isReady().catch((error: any) => {
@@ -725,6 +728,7 @@ export class AssignmentService {
     attempt.user = user;
 
     const saved = await this.attemptRepository.save(attempt);
+    this.rewardsService.onAction(userId, ChallengeAction.ASSIGNMENT_SUBMITTED).catch(() => {});
     return this.formatAttemptResponse(saved);
   }
 

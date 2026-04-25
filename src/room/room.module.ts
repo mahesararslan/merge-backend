@@ -14,6 +14,7 @@ import { RoomRoleGuard } from 'src/auth/guards/roles/room-role.guard';
 import { FolderModule } from '../folder/folder.module';
 import { FileModule } from '../file/file.module';
 import { Note } from '../entities/note.entity';
+import { RewardsModule } from '../rewards/rewards.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { Note } from '../entities/note.entity';
     TagModule,
     forwardRef(() => FolderModule),
     forwardRef(() => FileModule),
+    forwardRef(() => RewardsModule),
   ],
   controllers: [RoomController],
   providers: [RoomService, RoomRoleGuard],

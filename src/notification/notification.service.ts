@@ -137,7 +137,7 @@ export class NotificationService {
       for (const userId of allUserIds) {
         const notification = this.notificationRepository.create({
           user: { id: userId },
-          content: `New assignment in ${assignment.room.title}: ${assignment.title}`,
+          content: assignment.title,
           metadata: {
             roomId: assignment.room.id,
             roomTitle: assignment.room.title,
@@ -213,7 +213,7 @@ export class NotificationService {
       for (const userId of allUserIds) {
         const notification = this.notificationRepository.create({
           user: { id: userId },
-          content: `New quiz in ${quiz.room.title}: ${quiz.title}`,
+          content: quiz.title,
           metadata: {
             roomId: quiz.room.id,
             roomTitle: quiz.room.title,

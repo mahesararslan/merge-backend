@@ -35,34 +35,58 @@ export class CalendarService {
 	) {
 		const scheduleReminders = options?.scheduleReminders ?? true;
 		// Find all room members
-		const members = await this.roomMemberRepository.find({ where: { room: { id: roomId } }, relations: ['user'] });
-		const results: CalendarEvent[] = [];
+		const members = await this.roomMemberRepository.find({ 
+      where: { room: { id: roomId } }, 
+      relations: ['user'] 
+    });
+		
+    const events: CalendarEvent[] = [];
 		for (const member of members) {
-			const user = member.user;
-			if (!user) continue;
-			const event = this.calendarEventRepository.create({
+			if (!member.user) continue;
+			events.push(this.calendarEventRepository.create({
 				...createCalendarEventDto,
-				owner: user,
+				owner: member.user,
 				deadline: new Date(createCalendarEventDto.deadline),
 				taskStatus: TaskStatus.PENDING,
-			});
-			const saved = await this.calendarEventRepository.save(event);
-			if (scheduleReminders) {
-				// Schedule notifications
-				const now = Date.now();
-				const deadline = new Date(saved.deadline).getTime();
-				const diff24h = deadline - now - 24 * 60 * 60 * 1000;
-				const diff5m = deadline - now - 5 * 60 * 1000;
-				if (diff24h > 0) {
-					await this.calendarQueue.add('notify-24hr-before-deadline', { eventId: saved.id }, { delay: diff24h, removeOnComplete: true });
-				}
-				if (diff5m > 0) {
-					await this.calendarQueue.add('notify-5min-before-deadline', { eventId: saved.id }, { delay: diff5m, removeOnComplete: true });
-				}
-			}
-			results.push(saved);
+			}));
 		}
-		return results;
+
+    // Bulk save all events
+    const savedEvents = await this.calendarEventRepository.save(events);
+
+    // Schedule reminders in the background
+    if (scheduleReminders) {
+      const now = Date.now();
+      
+      // We don't await the individual queue adds to avoid blocking the request
+      // We use Promise.allSettled or just map to ensure they all fire
+      Promise.all(savedEvents.map(async (saved) => {
+        try {
+          const deadline = new Date(saved.deadline).getTime();
+          const diff24h = deadline - now - 24 * 60 * 60 * 1000;
+          const diff5m = deadline - now - 5 * 60 * 1000;
+
+          if (diff24h > 0) {
+            await this.calendarQueue.add(
+              'notify-24hr-before-deadline', 
+              { eventId: saved.id }, 
+              { delay: diff24h, removeOnComplete: true }
+            );
+          }
+          if (diff5m > 0) {
+            await this.calendarQueue.add(
+              'notify-5min-before-deadline', 
+              { eventId: saved.id }, 
+              { delay: diff5m, removeOnComplete: true }
+            );
+          }
+        } catch (err) {
+          this.logger.error(`Failed to schedule calendar reminder for event ${saved.id}: ${err.message}`);
+        }
+      })).catch(err => this.logger.error(`Error in bulk scheduling: ${err.message}`));
+    }
+
+		return savedEvents;
 	}
 
 	async create(createCalendarEventDto: CreateCalendarEventDto, userId: string) {

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
 
 @Module({
   imports: [
@@ -8,39 +9,36 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
         const url = configService.get<string>('REDIS_URL');
-        const redisOptions: any = {
+        const host = configService.get<string>('REDIS_HOST', 'localhost');
+        const port = parseInt(configService.get('REDIS_PORT', '6379'));
+        const password = configService.get<string>('REDIS_PASSWORD');
+
+        const commonOptions: any = {
           maxRetriesPerRequest: null,
           enableReadyCheck: false,
-          connectTimeout: 15000,
+          connectTimeout: 20000,
           retryStrategy: (times: number) => {
             return Math.min(times * 200, 5000);
           },
         };
 
-        if (url?.startsWith('rediss://')) {
-          redisOptions.tls = { rejectUnauthorized: false };
-        }
-
-        if (url) {
-          // If URL is provided, we pass it as the first argument to Bull (via 'redis' property)
-          // NestJS Bull handles passing this string + redisOptions to ioredis.
-          return {
-            redis: url,
-            ...redisOptions,
-            prefix: 'bull',
-            defaultJobOptions: {
-              removeOnComplete: 100,
-              removeOnFail: 200,
-            },
-          };
+        if (url?.startsWith('rediss://') || (!url && host && port === 6379 && password)) {
+           commonOptions.tls = { rejectUnauthorized: false };
         }
 
         return {
-          redis: {
-            host: configService.get('REDIS_HOST') || 'localhost',
-            port: parseInt(configService.get('REDIS_PORT') || '6379'),
-            password: configService.get('REDIS_PASSWORD'),
-            ...redisOptions,
+          // We use createClient to ensure EVERY connection (client, sub, bclient)
+          // gets the exact same robust configuration required for Upstash.
+          createClient: (type: 'client' | 'subscriber' | 'bclient') => {
+            if (url) {
+              return new Redis(url, commonOptions);
+            }
+            return new Redis({
+              host,
+              port,
+              ...(password && { password }),
+              ...commonOptions,
+            });
           },
           prefix: 'bull',
           defaultJobOptions: {

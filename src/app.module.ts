@@ -31,7 +31,6 @@ import { TranscriptionModule } from './transcription/transcription.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { LiveQnaModule } from './live-qna/live-qna.module';
 import { CanvasModule } from './canvas/canvas.module';
-import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -60,7 +59,6 @@ import { RedisModule } from './redis/redis.module';
         }, 
       ],
     }),
-    RedisModule,
     UserModule,
     AuthModule,
     MailModule,

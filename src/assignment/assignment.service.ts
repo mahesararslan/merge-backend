@@ -87,7 +87,7 @@ export class AssignmentService {
           description: saved.description || '',
           deadline: saved.endAt.toISOString(),
           taskCategory: TaskCategory.ASSIGNMENT,
-        }, saved.room.id, { scheduleReminders: false });
+        }, saved.room.id);
       }
     }
 

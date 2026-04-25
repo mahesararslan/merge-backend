@@ -68,19 +68,36 @@ export class LiveQnaService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const host = this.configService.get<string>('REDIS_HOST', 'localhost');
-    const port = this.configService.get<number>('REDIS_PORT', 6379);
-    const password = this.configService.get<string>('REDIS_PASSWORD', '');
-
-    this.redis = new Redis({
-      host,
-      port,
-      ...(password && { password }),
+    const url = this.configService.get<string>('REDIS_URL');
+    const options: any = {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
       retryStrategy: (times: number) => Math.min(times * 200, 2000),
-    });
+    };
+
+    if (url?.startsWith('rediss://')) {
+      options.tls = { rejectUnauthorized: false };
+    }
+
+    if (url) {
+      this.redis = new Redis(url, options);
+    } else {
+      const host = this.configService.get<string>('REDIS_HOST', 'localhost');
+      const port = this.configService.get<number>('REDIS_PORT', 6379);
+      const password = this.configService.get<string>('REDIS_PASSWORD', '');
+
+      this.redis = new Redis({
+        host,
+        port,
+        ...(password && { password }),
+        ...options,
+      });
+    }
 
     this.redis.on('ready', () => this.logger.log('LiveQna Redis connected'));
-    this.redis.on('error', (err) => this.logger.error('LiveQna Redis error', err.message));
+    this.redis.on('error', (err) =>
+      this.logger.error('LiveQna Redis error', err.message),
+    );
   }
 
   async onModuleDestroy() {

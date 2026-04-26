@@ -98,6 +98,9 @@ export class UserService {
   async findOne(id: string): Promise<User> {
     if (id === '__super_admin__') {
       const email = this.configService.get<string>('SUPER_ADMIN_EMAIL') ?? '';
+      // Build a virtual profile shaped like formatUserProfile output —
+      // we don't go through that helper because there's no real User
+      // entity, but we mirror its keys so the frontend treats it identically.
       return {
         id: '__super_admin__',
         email,
@@ -106,13 +109,14 @@ export class UserService {
         role: null,
         image: null,
         new_user: false,
+        NotificationStatus: 'default',
         googleAccount: false,
-        notificationStatus: 'default',
-        subscriptionTier: 'free',
-        suspendedAt: null,
-        suspendedReason: null,
+        isAdmin: true,
+        isVerified: true,
+        twoFactorEnabled: false,
         tags: [],
-        // formatUserProfile will set isAdmin: true because email matches env
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as any;
     }
 

@@ -36,10 +36,18 @@ const BADGE_TIER_MAP: Record<ChallengeType, BadgeTier> = {
 
 // Plan tier hierarchy — a user on tier X sees challenges with minPlanTier <= X.
 const PLAN_TIER_RANK: Record<PlanTier, number> = {
+  // Legacy
   [PlanTier.FREE]: 0,
   [PlanTier.BASIC]: 1,
   [PlanTier.PRO]: 2,
   [PlanTier.MAX]: 3,
+  // Student tiers
+  [PlanTier.STUDENT_FREE]: 0,
+  [PlanTier.STUDENT_PLUS]: 2,
+  // Instructor tiers
+  [PlanTier.INSTRUCTOR_STARTER]: 0,
+  [PlanTier.INSTRUCTOR_EDUCATOR]: 2,
+  [PlanTier.INSTRUCTOR_PRO]: 3,
 };
 
 @Injectable()
@@ -198,16 +206,32 @@ export class RewardsService implements OnModuleInit {
       this.logger.log(`onAction(${action}) for user ${userId}: ${visibleDefs.length} visible def(s) on plan ${userTier}`);
 
       const now = new Date();
+      // Per-tier cache: which evergreen def ids are in today's sliding window.
       const tierCache = new Map<ChallengeType, Set<string>>();
 
       for (const def of visibleDefs) {
+        // Dated (admin-scheduled) challenges: count progress only inside their window.
+        if (def.periodStart && def.periodEnd) {
+          const inWindow =
+            new Date(def.periodStart).getTime() <= now.getTime() &&
+            now.getTime() < new Date(def.periodEnd).getTime();
+          if (inWindow) {
+            await this.incrementChallengeProgress(userId, def);
+          }
+          continue;
+        }
+
+        // Evergreen challenges: defer to the sliding window.
         if (!tierCache.has(def.tier)) {
           const periodStart = this.getPeriodStart(def.tier, now);
           const allForTier = await this.challengeDefRepo.find({
             where: { tier: def.tier, isActive: true },
           });
-          const visibleForTier = this.filterByPlan(allForTier, userTier);
-          const scheduled = this.getScheduledDefs(visibleForTier, def.tier, periodStart);
+          // Only evergreen ones participate in the sliding pool.
+          const evergreenForTier = this.filterByPlan(allForTier, userTier).filter(
+            (d) => !d.periodStart,
+          );
+          const scheduled = this.getScheduledDefs(evergreenForTier, def.tier, periodStart);
           tierCache.set(def.tier, new Set(scheduled.map((d) => d.id)));
         }
 
@@ -227,7 +251,10 @@ export class RewardsService implements OnModuleInit {
   // ─── Core progress logic ───────────────────────────────────────────────────
 
   private async incrementChallengeProgress(userId: string, def: ChallengeDefinition): Promise<void> {
-    const periodStart = this.getPeriodStart(def.tier, new Date());
+    // Dated challenges key progress by their own period; evergreen ones by the rolling tier period.
+    const periodStart = def.periodStart
+      ? new Date(def.periodStart)
+      : this.getPeriodStart(def.tier, new Date());
 
     let progress = await this.challengeProgressRepo.findOne({
       where: {
@@ -518,17 +545,33 @@ export class RewardsService implements OnModuleInit {
       const expiresAt = this.getPeriodEnd(tier, periodStart);
       const allDefs = await this.challengeDefRepo.find({ where: { tier, isActive: true } });
       const visibleDefs = this.filterByPlan(allDefs, userTier);
-      const scheduledDefs = this.getScheduledDefs(visibleDefs, tier, periodStart);
 
-      for (const def of scheduledDefs) {
+      // Split evergreen vs scheduled (dated) challenges
+      const evergreen = visibleDefs.filter((d) => !d.periodStart);
+      const scheduledByDate = visibleDefs.filter(
+        (d) =>
+          d.periodStart && d.periodEnd &&
+          new Date(d.periodStart).getTime() <= now.getTime() &&
+          now.getTime() < new Date(d.periodEnd).getTime(),
+      );
+
+      // Evergreen ones go through the sliding window; dated ones all show.
+      const slidingPicks = this.getScheduledDefs(evergreen, tier, periodStart);
+      const activeDefs = [...scheduledByDate, ...slidingPicks];
+
+      for (const def of activeDefs) {
+        // For dated challenges, progress is keyed by their own periodStart;
+        // for evergreen, by the rolling tier periodStart.
+        const progressKey = def.periodStart ? new Date(def.periodStart) : periodStart;
         const progress = await this.challengeProgressRepo.findOne({
           where: {
             user: { id: userId },
             challengeDefinition: { id: def.id },
-            periodStart: periodStart as any,
+            periodStart: progressKey as any,
           },
         });
 
+        const expires = def.periodEnd ? new Date(def.periodEnd) : expiresAt;
         results.push({
           id: def.id,
           name: def.name,
@@ -540,8 +583,8 @@ export class RewardsService implements OnModuleInit {
           target: def.target,
           isCompleted: progress?.isCompleted ?? false,
           points: def.points,
-          periodStart: periodStart.toISOString(),
-          expiresAt: expiresAt.toISOString(),
+          periodStart: progressKey.toISOString(),
+          expiresAt: expires.toISOString(),
         });
       }
     }

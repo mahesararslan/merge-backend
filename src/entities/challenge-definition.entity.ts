@@ -51,6 +51,17 @@ export class ChallengeDefinition {
   @Column({ name: 'min_plan_tier', type: 'varchar', length: 20, default: PlanTier.FREE })
   minPlanTier: PlanTier;
 
+  // Optional scheduling window. When NULL, the challenge is "evergreen" and
+  // is selected by the sliding-window scheduler. When set, the challenge is
+  // a calendar event that only appears between periodStart (inclusive) and
+  // periodEnd (exclusive). Admin-created challenges always have these set;
+  // seeded challenges leave them NULL.
+  @Column({ name: 'period_start', type: 'date', nullable: true })
+  periodStart: Date | null;
+
+  @Column({ name: 'period_end', type: 'date', nullable: true })
+  periodEnd: Date | null;
+
   @Column({ default: true })
   isActive: boolean;
 }

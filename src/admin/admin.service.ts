@@ -261,18 +261,21 @@ export class AdminService {
   }
 
   async createChallenge(dto: any) {
-    if (!dto.name || !dto.description || !dto.tier || !dto.actionType || !dto.target) {
-      throw new BadRequestException('Missing required fields');
+    if (!dto.name || !dto.description || !dto.tier || !dto.actionType || !dto.target || !dto.periodStart) {
+      throw new BadRequestException('Missing required fields (name, description, tier, actionType, target, periodStart)');
     }
+    const { periodStart, periodEnd } = this.computePeriod(dto.tier, dto.periodStart);
     const row = this.challengeRepo.create({
       name: dto.name,
       description: dto.description,
-      icon: dto.icon ?? 'check-circle',
+      icon: this.defaultIconForTier(dto.tier),
       tier: dto.tier,
       actionType: dto.actionType,
       target: Number(dto.target),
       points: Number(dto.points ?? 10),
       minPlanTier: dto.minPlanTier ?? PlanTier.FREE,
+      periodStart,
+      periodEnd,
       isActive: dto.isActive ?? true,
     });
     return this.challengeRepo.save(row);
@@ -281,18 +284,72 @@ export class AdminService {
   async updateChallenge(id: string, dto: any) {
     const row = await this.challengeRepo.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Challenge not found');
+
+    // If periodStart is supplied, recompute periodEnd from the (possibly new) tier
+    let periodStart: Date | null | undefined = undefined;
+    let periodEnd: Date | null | undefined = undefined;
+    if (dto.periodStart != null) {
+      const tierForPeriod = dto.tier ?? row.tier;
+      const computed = this.computePeriod(tierForPeriod, dto.periodStart);
+      periodStart = computed.periodStart;
+      periodEnd = computed.periodEnd;
+    }
+
     Object.assign(row, {
       name: dto.name ?? row.name,
       description: dto.description ?? row.description,
-      icon: dto.icon ?? row.icon,
       tier: dto.tier ?? row.tier,
       actionType: dto.actionType ?? row.actionType,
       target: dto.target != null ? Number(dto.target) : row.target,
       points: dto.points != null ? Number(dto.points) : row.points,
       minPlanTier: dto.minPlanTier ?? row.minPlanTier,
       isActive: dto.isActive ?? row.isActive,
+      ...(periodStart !== undefined ? { periodStart } : {}),
+      ...(periodEnd !== undefined ? { periodEnd } : {}),
+      // Sync icon to tier if tier changed (we don't ask admin for icons).
+      icon: dto.tier && dto.tier !== row.tier ? this.defaultIconForTier(dto.tier) : row.icon,
     });
     return this.challengeRepo.save(row);
+  }
+
+  /**
+   * Convert the admin-supplied date input into a [periodStart, periodEnd) window,
+   * snapped to tier boundaries (UTC):
+   *   - daily   → that calendar day, ends next day
+   *   - weekly  → Monday of that week, ends following Monday (+7 days)
+   *   - monthly → 1st of that month, ends 1st of next month
+   * Accepts either a YYYY-MM-DD or YYYY-MM string.
+   */
+  private computePeriod(tier: string, input: string): { periodStart: Date; periodEnd: Date } {
+    // Parse without local-tz drift. "YYYY-MM" → assume day 01.
+    const parts = (input.includes('-') ? input.split('-') : []).map((p) => Number(p));
+    const [y, m, d] = [parts[0], parts[1], parts[2] ?? 1];
+    if (!y || !m) throw new BadRequestException('Invalid periodStart date');
+
+    if (tier === 'daily') {
+      const start = new Date(Date.UTC(y, m - 1, d));
+      const end = new Date(Date.UTC(y, m - 1, d + 1));
+      return { periodStart: start, periodEnd: end };
+    }
+    if (tier === 'weekly') {
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      const day = dt.getUTCDay(); // 0=Sun
+      const diff = day === 0 ? -6 : 1 - day; // snap to Monday
+      const start = new Date(Date.UTC(y, m - 1, d + diff));
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 7);
+      return { periodStart: start, periodEnd: end };
+    }
+    // monthly
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end = new Date(Date.UTC(y, m, 1));
+    return { periodStart: start, periodEnd: end };
+  }
+
+  private defaultIconForTier(tier: string): string {
+    if (tier === 'daily') return 'check-circle';
+    if (tier === 'weekly') return 'target';
+    return 'star'; // monthly
   }
 
   async deleteChallenge(id: string) {

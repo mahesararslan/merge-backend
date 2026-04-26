@@ -6,7 +6,9 @@ import { Badge, BadgeTier } from '../entities/badge.entity';
 import { UserBadge } from '../entities/user-badge.entity';
 import { UserChallengeProgress, ChallengeType } from '../entities/user-challenge-progress.entity';
 import { ChallengeDefinition, ChallengeAction } from '../entities/challenge-definition.entity';
+import { UserTierMonthlyProgress } from '../entities/user-tier-monthly-progress.entity';
 import { User } from '../entities/user.entity';
+import { PlanTier } from '../entities/subscription-plan.entity';
 import { NotificationService } from '../notification/notification.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -17,17 +19,27 @@ const SCHEDULED_COUNT: Record<ChallengeType, number> = {
   [ChallengeType.MONTHLY]: 2,
 };
 
-// ⚠️ TEST VALUES — change back to 7/4/1 before production
-const BADGE_CONSECUTIVE_THRESHOLD: Record<ChallengeType, number> = {
-  [ChallengeType.DAILY]: 1,   // prod: 7
-  [ChallengeType.WEEKLY]: 1,  // prod: 4
-  [ChallengeType.MONTHLY]: 1,
+// Number of challenge completions per tier required, *within a calendar month*,
+// to earn the badge for that tier in that month. The user can earn the same
+// badge again next month — the counter resets to 0 every month.
+const BADGE_MONTHLY_THRESHOLD: Record<ChallengeType, number> = {
+  [ChallengeType.DAILY]: 5,
+  [ChallengeType.WEEKLY]: 4,
+  [ChallengeType.MONTHLY]: 2,
 };
 
 const BADGE_TIER_MAP: Record<ChallengeType, BadgeTier> = {
   [ChallengeType.DAILY]: BadgeTier.DAILY,
   [ChallengeType.WEEKLY]: BadgeTier.WEEKLY,
   [ChallengeType.MONTHLY]: BadgeTier.MONTHLY,
+};
+
+// Plan tier hierarchy — a user on tier X sees challenges with minPlanTier <= X.
+const PLAN_TIER_RANK: Record<PlanTier, number> = {
+  [PlanTier.FREE]: 0,
+  [PlanTier.BASIC]: 1,
+  [PlanTier.PRO]: 2,
+  [PlanTier.MAX]: 3,
 };
 
 @Injectable()
@@ -45,6 +57,8 @@ export class RewardsService implements OnModuleInit {
     private challengeProgressRepo: Repository<UserChallengeProgress>,
     @InjectRepository(ChallengeDefinition)
     private challengeDefRepo: Repository<ChallengeDefinition>,
+    @InjectRepository(UserTierMonthlyProgress)
+    private monthlyProgressRepo: Repository<UserTierMonthlyProgress>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private notificationService: NotificationService,
@@ -60,9 +74,9 @@ export class RewardsService implements OnModuleInit {
 
   private async seedBadges(): Promise<void> {
     const defs = [
-      { name: 'Daily Champion',  description: 'Complete all your daily challenges to unlock 10% off',   icon: 'flame',     tier: BadgeTier.DAILY,   discountPercentage: 10 },
-      { name: 'Weekly Scholar',  description: 'Complete all your weekly challenges to unlock 20% off',  icon: 'book-open', tier: BadgeTier.WEEKLY,  discountPercentage: 20 },
-      { name: 'Monthly Master',  description: 'Complete all your monthly challenges to unlock 30% off', icon: 'trophy',    tier: BadgeTier.MONTHLY, discountPercentage: 30 },
+      { name: 'Daily Champion',  description: 'Complete 5 daily challenges this month to unlock 10% off',   icon: 'flame',     tier: BadgeTier.DAILY,   discountPercentage: 10 },
+      { name: 'Weekly Scholar',  description: 'Complete 4 weekly challenges this month to unlock 20% off',  icon: 'book-open', tier: BadgeTier.WEEKLY,  discountPercentage: 20 },
+      { name: 'Monthly Master',  description: 'Complete 2 monthly challenges this month to unlock 30% off', icon: 'trophy',    tier: BadgeTier.MONTHLY, discountPercentage: 30 },
     ];
     for (const def of defs) {
       const exists = await this.badgeRepo.findOne({ where: { name: def.name } });
@@ -77,25 +91,27 @@ export class RewardsService implements OnModuleInit {
 
   private async seedChallengeDefinitions(): Promise<void> {
     const defs = [
-      // Daily — ⚠️ targets set to 1 for testing. Prod: Task Sprinter→3, Note Creator→2
-      { name: 'Task Sprinter',    description: 'Complete 1 calendar task before its deadline',   icon: 'check-circle', tier: ChallengeType.DAILY,   actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 1,  points: 10 },
-      { name: 'Note Creator',     description: 'Create 1 note today',                            icon: 'file-text',    tier: ChallengeType.DAILY,   actionType: ChallengeAction.NOTE_CREATED,            target: 1,  points: 10 },
-      { name: 'Quiz Taker',       description: 'Complete a quiz today',                          icon: 'help-circle',  tier: ChallengeType.DAILY,   actionType: ChallengeAction.QUIZ_COMPLETED,           target: 1,  points: 15 },
-      { name: 'Homework Hero',    description: 'Submit an assignment today',                      icon: 'upload',       tier: ChallengeType.DAILY,   actionType: ChallengeAction.ASSIGNMENT_SUBMITTED,     target: 1,  points: 15 },
-      // Weekly (pool ≥ 3)
-      { name: 'Weekly Achiever',  description: 'Complete 10 tasks this week',                     icon: 'target',       tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 10, points: 50 },
-      { name: 'Knowledge Builder',description: 'Create 5 notes this week',                        icon: 'book',         tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.NOTE_CREATED,            target: 5,  points: 50 },
-      { name: 'Quiz Champion',    description: 'Complete 3 quizzes this week',                    icon: 'award',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.QUIZ_COMPLETED,           target: 3,  points: 60 },
-      { name: 'Live Learner',     description: 'Attend a live session this week',                 icon: 'video',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.LIVE_SESSION_ATTENDED,   target: 1,  points: 40 },
-      // Monthly (pool ≥ 2)
-      { name: 'Monthly Champion', description: 'Complete 30 tasks this month',                    icon: 'star',         tier: ChallengeType.MONTHLY, actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 30, points: 200 },
-      { name: 'Scholar',          description: 'Create 20 notes this month',                      icon: 'book-open',    tier: ChallengeType.MONTHLY, actionType: ChallengeAction.NOTE_CREATED,            target: 20, points: 150 },
+      // Daily — small targets that any user can hit on the free plan
+      { name: 'Task Sprinter',    description: 'Complete 1 calendar task before its deadline',   icon: 'check-circle', tier: ChallengeType.DAILY,   actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 1,  points: 10, minPlanTier: PlanTier.FREE },
+      { name: 'Note Creator',     description: 'Create 1 note today',                            icon: 'file-text',    tier: ChallengeType.DAILY,   actionType: ChallengeAction.NOTE_CREATED,            target: 1,  points: 10, minPlanTier: PlanTier.FREE },
+      { name: 'Quiz Taker',       description: 'Complete a quiz today',                          icon: 'help-circle',  tier: ChallengeType.DAILY,   actionType: ChallengeAction.QUIZ_COMPLETED,           target: 1,  points: 15, minPlanTier: PlanTier.FREE },
+      { name: 'Homework Hero',    description: 'Submit an assignment today',                     icon: 'upload',       tier: ChallengeType.DAILY,   actionType: ChallengeAction.ASSIGNMENT_SUBMITTED,     target: 1,  points: 15, minPlanTier: PlanTier.FREE },
+      // Weekly
+      { name: 'Weekly Achiever',  description: 'Complete 10 tasks this week',                    icon: 'target',       tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 10, points: 50, minPlanTier: PlanTier.FREE },
+      { name: 'Knowledge Builder',description: 'Create 5 notes this week',                       icon: 'book',         tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.NOTE_CREATED,            target: 5,  points: 50, minPlanTier: PlanTier.FREE },
+      { name: 'Quiz Champion',    description: 'Complete 3 quizzes this week',                   icon: 'award',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.QUIZ_COMPLETED,           target: 3,  points: 60, minPlanTier: PlanTier.PRO  },
+      { name: 'Live Learner',     description: 'Attend a live session this week',                icon: 'video',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.LIVE_SESSION_ATTENDED,   target: 1,  points: 40, minPlanTier: PlanTier.FREE },
+      // Monthly — larger targets, restricted to paid plans where note/task limits don't bite
+      { name: 'Monthly Champion', description: 'Complete 30 tasks this month',                   icon: 'star',         tier: ChallengeType.MONTHLY, actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 30, points: 200, minPlanTier: PlanTier.FREE },
+      { name: 'Scholar',          description: 'Create 20 notes this month',                     icon: 'book-open',    tier: ChallengeType.MONTHLY, actionType: ChallengeAction.NOTE_CREATED,            target: 20, points: 150, minPlanTier: PlanTier.PRO  },
     ];
     for (const def of defs) {
       const exists = await this.challengeDefRepo.findOne({ where: { name: def.name } });
       if (exists) {
-        // Update target in case it changed (for testing vs production)
-        await this.challengeDefRepo.update({ name: def.name }, { target: def.target, description: def.description });
+        await this.challengeDefRepo.update(
+          { name: def.name },
+          { target: def.target, description: def.description, minPlanTier: def.minPlanTier },
+        );
       } else {
         await this.challengeDefRepo.save(this.challengeDefRepo.create(def));
         this.logger.log(`Seeded challenge: ${def.name}`);
@@ -103,15 +119,19 @@ export class RewardsService implements OnModuleInit {
     }
   }
 
+  // ─── Plan filter ───────────────────────────────────────────────────────────
+
+  /** Filter a list of challenge defs by what the given tier can see. */
+  private filterByPlan(defs: ChallengeDefinition[], userTier: PlanTier): ChallengeDefinition[] {
+    const userRank = PLAN_TIER_RANK[userTier] ?? 0;
+    return defs.filter((d) => (PLAN_TIER_RANK[d.minPlanTier] ?? 0) <= userRank);
+  }
+
   // ─── Scheduling ────────────────────────────────────────────────────────────
 
   /**
    * Sliding-window rotation: each period the window shifts by 1 position,
    * giving `poolSize` distinct combinations before it repeats.
-   *
-   * Example — pool of 6 daily challenges, showing 3 per day:
-   *   Day 0: [0,1,2]  Day 1: [1,2,3]  Day 2: [2,3,4]
-   *   Day 3: [3,4,5]  Day 4: [4,5,0]  Day 5: [5,0,1]  → repeats on Day 6
    */
   private getScheduledDefs(
     allDefs: ChallengeDefinition[],
@@ -120,14 +140,8 @@ export class RewardsService implements OnModuleInit {
   ): ChallengeDefinition[] {
     if (allDefs.length === 0) return [];
     const count = Math.min(SCHEDULED_COUNT[tier], allDefs.length);
-
-    // Sort deterministically so the rotation is consistent across all users
     const sorted = [...allDefs].sort((a, b) => a.id.localeCompare(b.id));
-
-    // Period index: a monotonically increasing integer unique to each period
     const periodIndex = this.getPeriodIndex(tier, periodStart);
-
-    // Sliding window: start shifts by 1 each period, wraps around pool
     const startIdx = periodIndex % sorted.length;
 
     const selected: ChallengeDefinition[] = [];
@@ -140,13 +154,11 @@ export class RewardsService implements OnModuleInit {
   private getPeriodIndex(tier: ChallengeType, periodStart: Date): number {
     const d = new Date(periodStart);
     if (tier === ChallengeType.DAILY) {
-      // Days since Unix epoch (UTC)
       return Math.floor(d.getTime() / (24 * 60 * 60 * 1000));
     }
     if (tier === ChallengeType.WEEKLY) {
       return Math.floor(d.getTime() / (7 * 24 * 60 * 60 * 1000));
     }
-    // Monthly: months since year 0
     return d.getFullYear() * 12 + d.getMonth();
   }
 
@@ -170,34 +182,37 @@ export class RewardsService implements OnModuleInit {
     try {
       if (action === ChallengeAction.FOCUS_SCORE && (!value || value < 75)) return;
 
-      // Find all challenge definitions that match this action
       const matchingDefs = await this.challengeDefRepo.find({
         where: { actionType: action, isActive: true },
       });
-      this.logger.log(`onAction(${action}) for user ${userId}: ${matchingDefs.length} matching def(s)`);
       if (matchingDefs.length === 0) return;
 
-      const now = new Date();
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) return;
+      const userTier = user.subscriptionTier ?? PlanTier.FREE;
 
-      // Group by tier and check if each def is currently scheduled
+      // Only definitions visible to this user's plan tier
+      const visibleDefs = this.filterByPlan(matchingDefs, userTier);
+      if (visibleDefs.length === 0) return;
+
+      this.logger.log(`onAction(${action}) for user ${userId}: ${visibleDefs.length} visible def(s) on plan ${userTier}`);
+
+      const now = new Date();
       const tierCache = new Map<ChallengeType, Set<string>>();
 
-      for (const def of matchingDefs) {
+      for (const def of visibleDefs) {
         if (!tierCache.has(def.tier)) {
           const periodStart = this.getPeriodStart(def.tier, now);
           const allForTier = await this.challengeDefRepo.find({
             where: { tier: def.tier, isActive: true },
           });
-          const scheduled = this.getScheduledDefs(allForTier, def.tier, periodStart);
+          const visibleForTier = this.filterByPlan(allForTier, userTier);
+          const scheduled = this.getScheduledDefs(visibleForTier, def.tier, periodStart);
           tierCache.set(def.tier, new Set(scheduled.map((d) => d.id)));
-          this.logger.log(`  ${def.tier} scheduled today: ${scheduled.map((d) => d.name).join(', ')}`);
         }
 
         if (tierCache.get(def.tier)!.has(def.id)) {
-          this.logger.log(`  ✓ Incrementing "${def.name}" (${def.tier})`);
           await this.incrementChallengeProgress(userId, def);
-        } else {
-          this.logger.log(`  ✗ "${def.name}" (${def.tier}) not scheduled today, skipping`);
         }
       }
     } catch (error: any) {
@@ -230,7 +245,7 @@ export class RewardsService implements OnModuleInit {
         periodStart,
         currentCount: 0,
         isCompleted: false,
-        consecutiveCount: 0,
+        consecutiveCount: 0, // legacy field — no longer used, kept for column compatibility
       });
     }
 
@@ -238,27 +253,41 @@ export class RewardsService implements OnModuleInit {
 
     progress.currentCount += 1;
 
+    let justCompleted = false;
     if (progress.currentCount >= def.target) {
       progress.isCompleted = true;
       progress.completedAt = new Date();
-
-      const prevPeriodStart = this.getPreviousPeriodStart(def.tier, periodStart);
-      const prev = await this.challengeProgressRepo.findOne({
-        where: {
-          user: { id: userId },
-          challengeDefinition: { id: def.id },
-          periodStart: prevPeriodStart as any,
-          isCompleted: true,
-        },
-      });
-      progress.consecutiveCount = prev ? prev.consecutiveCount + 1 : 1;
+      justCompleted = true;
     }
 
     await this.challengeProgressRepo.save(progress);
 
-    if (progress.isCompleted) {
+    if (justCompleted) {
+      // Increment the per-month counter for this tier — drives badge eligibility
+      await this.incrementMonthlyCounter(userId, def.tier);
       await this.checkAndAwardBadge(userId, def.tier);
     }
+  }
+
+  private async incrementMonthlyCounter(userId: string, tier: ChallengeType): Promise<void> {
+    const periodMonth = this.getMonthStart(new Date());
+
+    let row = await this.monthlyProgressRepo.findOne({
+      where: { user: { id: userId }, tier, periodMonth: periodMonth as any },
+    });
+
+    if (!row) {
+      row = this.monthlyProgressRepo.create({
+        user: { id: userId } as User,
+        tier,
+        periodMonth,
+        completedCount: 1,
+      });
+    } else {
+      row.completedCount += 1;
+    }
+
+    await this.monthlyProgressRepo.save(row);
   }
 
   private async updateStreak(userId: string, date: Date): Promise<void> {
@@ -283,40 +312,27 @@ export class RewardsService implements OnModuleInit {
     await this.streakRepo.save(streak);
   }
 
+  /** Award the badge for this tier IF the user's monthly counter has reached the threshold. */
   private async checkAndAwardBadge(userId: string, tier: ChallengeType): Promise<void> {
-    const threshold = BADGE_CONSECUTIVE_THRESHOLD[tier];
-    const now = new Date();
-    const currentPeriodStart = this.getPeriodStart(tier, now);
+    const threshold = BADGE_MONTHLY_THRESHOLD[tier];
+    const periodMonth = this.getMonthStart(new Date());
 
-    // Only look at the scheduled challenges for this period
-    const allDefs = await this.challengeDefRepo.find({ where: { tier, isActive: true } });
-    const scheduledDefs = this.getScheduledDefs(allDefs, tier, currentPeriodStart);
-    if (scheduledDefs.length === 0) return;
-
-    // All scheduled challenges must be completed this period
-    const completedInPeriod = await Promise.all(
-      scheduledDefs.map((def) =>
-        this.challengeProgressRepo.findOne({
-          where: {
-            user: { id: userId },
-            challengeDefinition: { id: def.id },
-            periodStart: currentPeriodStart as any,
-            isCompleted: true,
-          },
-        }),
-      ),
-    );
-    if (completedInPeriod.some((p) => !p)) return;
-
-    const consecutiveCounts = completedInPeriod.map((p) => p!.consecutiveCount);
-    const minConsecutive = Math.min(...consecutiveCounts);
-    if (minConsecutive < threshold) return;
+    const counter = await this.monthlyProgressRepo.findOne({
+      where: { user: { id: userId }, tier, periodMonth: periodMonth as any },
+    });
+    if (!counter || counter.completedCount < threshold) return;
 
     const badge = await this.badgeRepo.findOne({ where: { tier: BADGE_TIER_MAP[tier], isActive: true } });
     if (!badge) return;
 
+    // One badge per (user, badge, month). If they already have it for this
+    // month, don't award again.
     const alreadyEarned = await this.userBadgeRepo.findOne({
-      where: { user: { id: userId }, badge: { id: badge.id } },
+      where: {
+        user: { id: userId },
+        badge: { id: badge.id },
+        periodMonth: periodMonth as any,
+      },
     });
     if (alreadyEarned) return;
 
@@ -325,6 +341,7 @@ export class RewardsService implements OnModuleInit {
       user: { id: userId } as User,
       badge,
       earnedAt: new Date(),
+      periodMonth,
       lsDiscountCode: discountCode ?? undefined,
       isRedeemed: false,
     });
@@ -332,10 +349,10 @@ export class RewardsService implements OnModuleInit {
 
     await this.notificationService.sendNotificationToUser(
       userId,
-      `🏆 You earned the "${badge.name}" badge! Enjoy ${badge.discountPercentage}% off any subscription plan.`,
+      `🏆 You earned the "${badge.name}" badge for ${this.formatMonth(periodMonth)}! Enjoy ${badge.discountPercentage}% off any subscription plan.`,
       { type: 'badge', badgeId: badge.id, actionUrl: '/rewards' },
     );
-    this.logger.log(`Awarded badge "${badge.name}" to user ${userId}`);
+    this.logger.log(`Awarded badge "${badge.name}" to user ${userId} for ${this.formatMonth(periodMonth)}`);
   }
 
   private async createLsDiscountCode(discountPercent: number): Promise<string | null> {
@@ -385,12 +402,7 @@ export class RewardsService implements OnModuleInit {
     }
   }
 
-  /** Backfills discount codes for badges that have isDiscountCode=null */
-  /**
-   * Lazy retry — attempts to create discount codes for any earned badges
-   * that don't have one yet. Called automatically on every rewards profile fetch
-   * so failures during initial badge award self-heal next time the user visits /rewards.
-   */
+  /** Lazy retry — backfill discount codes for any earned badges that don't have one yet. */
   async backfillMissingDiscountCodes(userId?: string): Promise<{ fixed: number }> {
     const where: any = userId ? { user: { id: userId } } : {};
     const badges = await this.userBadgeRepo.find({ where, relations: ['badge'] });
@@ -412,21 +424,16 @@ export class RewardsService implements OnModuleInit {
   // ─── Query methods ─────────────────────────────────────────────────────────
 
   async getUserRewardsProfile(userId: string) {
-    // Tick the daily-usage streak — viewing the rewards page / dashboard counts as a "login"
     await this.updateStreak(userId, new Date()).catch((e) =>
       this.logger.error(`Streak update failed: ${e.message}`),
     );
 
-    // Self-heal: retry creating LemonSqueezy discount codes for any badges
-    // that didn't get one when first awarded (e.g. LS API was down or misconfigured).
-    // Fire-and-forget so it doesn't slow down the response.
     this.backfillMissingDiscountCodes(userId).catch((e) =>
       this.logger.error(`Auto-backfill failed: ${e.message}`),
     );
 
     const streak = await this.streakRepo.findOne({ where: { user: { id: userId } } });
 
-    // Return ALL badge definitions enriched with the user's earned status
     const allBadges = await this.badgeRepo.find({
       where: { isActive: true },
       order: { discountPercentage: 'ASC' },
@@ -434,12 +441,49 @@ export class RewardsService implements OnModuleInit {
     const userBadges = await this.userBadgeRepo.find({
       where: { user: { id: userId } },
       relations: ['badge'],
+      order: { earnedAt: 'DESC' },
     });
-    const userBadgeMap = new Map(userBadges.map((ub) => [ub.badge.id, ub]));
+
+    // Current month's earned badges, keyed by badge id, for the "current state" cards
+    const currentMonth = this.getMonthStart(new Date());
+    const currentMonthBadgeMap = new Map(
+      userBadges
+        .filter((ub) => this.isSameMonth(new Date(ub.periodMonth), currentMonth))
+        .map((ub) => [ub.badge.id, ub]),
+    );
+
     const badges = allBadges.map((badge) => ({
       badge,
-      userBadge: userBadgeMap.get(badge.id) ?? null,
+      userBadge: currentMonthBadgeMap.get(badge.id) ?? null,
     }));
+
+    // Per-tier monthly progress for the current month (drives the X/threshold display)
+    const monthlyProgress = await this.monthlyProgressRepo.find({
+      where: { user: { id: userId }, periodMonth: currentMonth as any },
+    });
+    const monthlyProgressByTier: Record<string, { completed: number; threshold: number }> = {
+      daily:   { completed: 0, threshold: BADGE_MONTHLY_THRESHOLD[ChallengeType.DAILY] },
+      weekly:  { completed: 0, threshold: BADGE_MONTHLY_THRESHOLD[ChallengeType.WEEKLY] },
+      monthly: { completed: 0, threshold: BADGE_MONTHLY_THRESHOLD[ChallengeType.MONTHLY] },
+    };
+    for (const row of monthlyProgress) {
+      monthlyProgressByTier[row.tier] = {
+        completed: row.completedCount,
+        threshold: BADGE_MONTHLY_THRESHOLD[row.tier as ChallengeType],
+      };
+    }
+
+    // Group historical earned badges by month for the timeline UI
+    const badgeHistoryMap = new Map<string, Array<{ badge: Badge; userBadge: UserBadge }>>();
+    for (const ub of userBadges) {
+      const key = this.formatMonthKey(new Date(ub.periodMonth));
+      const arr = badgeHistoryMap.get(key) ?? [];
+      arr.push({ badge: ub.badge, userBadge: ub });
+      badgeHistoryMap.set(key, arr);
+    }
+    const badgeHistory = Array.from(badgeHistoryMap.entries())
+      .map(([periodMonth, items]) => ({ periodMonth, badges: items }))
+      .sort((a, b) => b.periodMonth.localeCompare(a.periodMonth));
 
     const challenges = await this.getUserChallenges(userId);
     const totalPoints = challenges
@@ -449,18 +493,23 @@ export class RewardsService implements OnModuleInit {
     return {
       streak: streak ?? { currentStreak: 0, longestStreak: 0, lastActivityDate: null },
       badges,
+      monthlyProgress: monthlyProgressByTier,
+      badgeHistory,
       totalPoints,
       challenges,
     };
   }
 
   async getUserChallenges(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    const userTier = user?.subscriptionTier ?? PlanTier.FREE;
+
     const now = new Date();
     const results: Array<{
       id: string; name: string; description: string; icon: string;
       type: ChallengeType; actionType: ChallengeAction;
       currentCount: number; target: number; isCompleted: boolean;
-      consecutiveCount: number; points: number;
+      points: number;
       periodStart: string; expiresAt: string;
     }> = [];
 
@@ -468,7 +517,8 @@ export class RewardsService implements OnModuleInit {
       const periodStart = this.getPeriodStart(tier, now);
       const expiresAt = this.getPeriodEnd(tier, periodStart);
       const allDefs = await this.challengeDefRepo.find({ where: { tier, isActive: true } });
-      const scheduledDefs = this.getScheduledDefs(allDefs, tier, periodStart);
+      const visibleDefs = this.filterByPlan(allDefs, userTier);
+      const scheduledDefs = this.getScheduledDefs(visibleDefs, tier, periodStart);
 
       for (const def of scheduledDefs) {
         const progress = await this.challengeProgressRepo.findOne({
@@ -489,7 +539,6 @@ export class RewardsService implements OnModuleInit {
           currentCount: progress?.currentCount ?? 0,
           target: def.target,
           isCompleted: progress?.isCompleted ?? false,
-          consecutiveCount: progress?.consecutiveCount ?? 0,
           points: def.points,
           periodStart: periodStart.toISOString(),
           expiresAt: expiresAt.toISOString(),
@@ -507,22 +556,28 @@ export class RewardsService implements OnModuleInit {
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
     }
     if (type === ChallengeType.WEEKLY) {
-      const day = d.getUTCDay(); // 0=Sun
-      const diff = day === 0 ? -6 : 1 - day; // Monday start
+      const day = d.getUTCDay();
+      const diff = day === 0 ? -6 : 1 - day;
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diff));
     }
     return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
   }
 
-  private getPreviousPeriodStart(type: ChallengeType, current: Date): Date {
-    const d = new Date(current);
-    if (type === ChallengeType.DAILY) {
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - 1));
-    }
-    if (type === ChallengeType.WEEKLY) {
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - 7));
-    }
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
+  /** First day of the calendar month containing `date` (UTC). */
+  private getMonthStart(date: Date): Date {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  }
+
+  private isSameMonth(a: Date, b: Date): boolean {
+    return a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth();
+  }
+
+  private formatMonth(d: Date): string {
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  private formatMonthKey(d: Date): string {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   }
 
   private toDateOnly(d: Date): Date {

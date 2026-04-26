@@ -8,12 +8,13 @@ import { Badge } from '../entities/badge.entity';
 import { UserBadge } from '../entities/user-badge.entity';
 import { UserChallengeProgress } from '../entities/user-challenge-progress.entity';
 import { ChallengeDefinition } from '../entities/challenge-definition.entity';
+import { UserTierMonthlyProgress } from '../entities/user-tier-monthly-progress.entity';
 import { User } from '../entities/user.entity';
 import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserStreak, Badge, UserBadge, UserChallengeProgress, ChallengeDefinition, User]),
+    TypeOrmModule.forFeature([UserStreak, Badge, UserBadge, UserChallengeProgress, ChallengeDefinition, UserTierMonthlyProgress, User]),
     NotificationModule,
     ConfigModule,
   ],

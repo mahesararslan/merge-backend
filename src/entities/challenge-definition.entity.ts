@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { PlanTier } from './subscription-plan.entity';
 
 // Defined here (not in user-challenge-progress.entity.ts) to avoid circular import
 export enum ChallengeType {
@@ -43,6 +44,12 @@ export class ChallengeDefinition {
 
   @Column({ default: 0 })
   points: number;
+
+  // Minimum plan a user must be on for this challenge to appear.
+  // Free users only see free-tier challenges; paying users see free + their tier.
+  // Stored as varchar (not enum) for portability with the existing migration.
+  @Column({ name: 'min_plan_tier', type: 'varchar', length: 20, default: PlanTier.FREE })
+  minPlanTier: PlanTier;
 
   @Column({ default: true })
   isActive: boolean;

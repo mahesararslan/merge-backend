@@ -68,19 +68,45 @@ export class LiveQnaService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const host = this.configService.get<string>('REDIS_HOST', 'localhost');
-    const port = this.configService.get<number>('REDIS_PORT', 6379);
-    const password = this.configService.get<string>('REDIS_PASSWORD', '');
+    const url = this.configService.get<string>('REDIS_URL');
+    
+    // Base options for Upstash stability
+    const baseOptions: any = {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      keepAlive: 30000, // 30s keep-alive
+      family: 4,        // Force IPv4 for cloud stability
+      retryStrategy: (times: number) => {
+        const delay = Math.min(times * 200, 5000);
+        return delay;
+      },
+    };
 
-    this.redis = new Redis({
-      host,
-      port,
-      ...(password && { password }),
-      retryStrategy: (times: number) => Math.min(times * 200, 2000),
-    });
+    if (url) {
+      // For Upstash/Render, ensure TLS is enabled for rediss://
+      if (url.startsWith('rediss://')) {
+        baseOptions.tls = { rejectUnauthorized: false };
+      }
+      this.redis = new Redis(url, baseOptions);
+    } else {
+      const host = this.configService.get<string>('REDIS_HOST', 'localhost');
+      const port = this.configService.get<number>('REDIS_PORT', 6379);
+      const password = this.configService.get<string>('REDIS_PASSWORD', '');
+
+      this.redis = new Redis({
+        host,
+        port,
+        ...(password && { password }),
+        ...baseOptions,
+      });
+    }
 
     this.redis.on('ready', () => this.logger.log('LiveQna Redis connected'));
-    this.redis.on('error', (err) => this.logger.error('LiveQna Redis error', err.message));
+    this.redis.on('error', (err) => {
+      // Ignore 'max retries' logs if they still appear during rapid reconnection
+      if (err.message?.includes('max retries')) return;
+      this.logger.error('LiveQna Redis error', err.message);
+    });
   }
 
   async onModuleDestroy() {

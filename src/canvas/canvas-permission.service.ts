@@ -23,7 +23,9 @@ export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
     const options: any = {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
-      retryStrategy: (times: number) => Math.min(times * 200, 2000),
+      keepAlive: 30000,
+      family: 4,
+      retryStrategy: (times: number) => Math.min(times * 200, 5000),
     };
 
     // Enable TLS for Upstash (rediss:// protocol)
@@ -47,9 +49,10 @@ export class CanvasPermissionService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.redis.on('ready', () => this.logger.log('Canvas Redis connected'));
-    this.redis.on('error', (err) =>
-      this.logger.error('Canvas Redis error', err.message),
-    );
+    this.redis.on('error', (err) => {
+      if (err.message?.includes('max retries')) return;
+      this.logger.error('Canvas Redis error', err.message);
+    });
   }
 
   async onModuleDestroy() {

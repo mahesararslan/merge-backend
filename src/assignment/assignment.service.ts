@@ -71,6 +71,9 @@ export class AssignmentService {
       throw new NotFoundException('User not found');
     }
 
+    const start = Date.now();
+    this.logger.log(`Starting assignment creation for room ${createAssignmentDto.roomId}`);
+
     const assignment = this.assignmentRepository.create(createAssignmentDto);
     assignment.room = room;
     assignment.author = user;
@@ -79,48 +82,65 @@ export class AssignmentService {
     assignment.isPublished = true; // Immediately published
 
     const saved = await this.assignmentRepository.save(assignment);
+    this.logger.log(`Assignment saved to DB in ${Date.now() - start}ms: ${saved.id}`);
 
-    // Trigger notifications for published assignment
-    if (saved.isPublished) {
-      await this.notificationService.createAssignmentNotifications(saved);
-      // Add to calendar for all room members
-      if (saved.endAt) {
-        await this.calendarService.createForRoomMembers({
-          title: saved.title,
-          description: saved.description || '',
-          deadline: saved.endAt.toISOString(),
-          taskCategory: TaskCategory.ASSIGNMENT,
-        }, saved.room.id);
-      }
+    // FORMAT RESPONSE IMMEDIATELY
+    this.logger.log(`Formatting response for assignment ${saved.id}...`);
+    let result;
+    try {
+      result = this.formatAssignmentResponse(saved);
+      this.logger.log(`Response formatted successfully for ${saved.id}`);
+    } catch (err: any) {
+      this.logger.error(`Error formatting response for ${saved.id}: ${err.message}`);
+      result = { id: saved.id, title: saved.title };
     }
 
-    // Schedule 24hr-before-due notification if endAt is at least 24h in future
-    if (saved.endAt) {
-      const endAt = new Date(saved.endAt).getTime();
-      const now = Date.now();
-      const diff = endAt - now;
-      const twentyFourHours = 24 * 60 * 60 * 1000;
-      if (diff > twentyFourHours) {
-        const delay = endAt - twentyFourHours - now;
-        try {
-          await this.assignmentQueue.add(
-            'notify-24hr-before-due',
-            { assignmentId: saved.id },
-            {
-              delay,
-              removeOnComplete: true,
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 2000 },
-            },
-          );
-          this.logger.log(`Scheduled 24hr-before-due notification for assignment ${saved.id}`);
-        } catch (error: any) {
-          this.logger.error(`Failed to schedule 24hr-before-due notification: ${error.message}`);
+    // ALL SECONDARY TASKS IN BACKGROUND
+    setImmediate(async () => {
+      try {
+        const bgStart = Date.now();
+        this.logger.log(`Background: Starting processing for ${saved.id}...`);
+
+        if (saved.isPublished) {
+          // 1. FCM Notifications
+          await this.notificationService.createAssignmentNotifications(saved)
+            .catch(err => this.logger.error(`Background Error (FCM): ${err.message}`));
+
+          // 2. Calendar Entries
+          if (saved.endAt) {
+            await this.calendarService.createForRoomMembers({
+              title: saved.title,
+              description: saved.description || '',
+              deadline: saved.endAt.toISOString(),
+              taskCategory: TaskCategory.ASSIGNMENT,
+            }, saved.room.id, { scheduleReminders: false })
+            .catch(err => this.logger.error(`Background Error (Calendar): ${err.message}`));
+          }
         }
-      }
-    }
 
-    return this.formatAssignmentResponse(saved);
+        // 3. Queue 24hr Reminder
+        if (saved.endAt) {
+          const endAtTime = new Date(saved.endAt).getTime();
+          const now = Date.now();
+          const twentyFourHours = 24 * 60 * 60 * 1000;
+          if (endAtTime - now > twentyFourHours) {
+            const delay = endAtTime - twentyFourHours - now;
+            await this.assignmentQueue.add(
+              'notify-24hr-before-due',
+              { assignmentId: saved.id },
+              { delay, removeOnComplete: true, attempts: 3 }
+            ).catch(err => this.logger.error(`Background Error (Queue): ${err.message}`));
+          }
+        }
+
+        this.logger.log(`Background: Finished processing for ${saved.id} in ${Date.now() - bgStart}ms`);
+      } catch (err: any) {
+        this.logger.error(`Background Process CRITICAL ERROR for ${saved.id}: ${err.message}`);
+      }
+    });
+
+    this.logger.log(`Assignment creation request fulfilled in ${Date.now() - start}ms`);
+    return result;
   }
 
   async schedule(scheduleAssignmentDto: CreateAssignmentDto, userId: string): Promise<any> {
@@ -183,7 +203,6 @@ export class AssignmentService {
       this.logger.log(`Scheduled assignment ${saved.id} for ${scheduledDate.toISOString()}, job ID: ${job.id}`);
     } catch (error: any) {
       this.logger.error(`Failed to add assignment to queue: ${error.message}`, error.stack);
-      // Continue anyway - the assignment is saved and can be manually published
     }
 
     // Schedule 24hr-before-due notification if endAt is at least 24h in future

@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -37,7 +38,19 @@ export class UserService {
     @Inject('CACHE_MANAGER') private cacheManager: Cache,
     private tagService: TagService,
     private roomService: RoomService,
+    private configService: ConfigService,
   ) {}
+
+  /**
+   * Returns true if the given email is in the SUPER_ADMIN_EMAILS env list.
+   * Comma-separated, case-insensitive, whitespace-tolerant.
+   */
+  isSuperAdminEmail(email: string | undefined | null): boolean {
+    if (!email) return false;
+    const raw = this.configService.get<string>('SUPER_ADMIN_EMAILS') || '';
+    const list = raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+    return list.includes(email.toLowerCase());
+  }
 
   async create(
     createUserDto: CreateUserDto,
@@ -444,6 +457,9 @@ export class UserService {
       new_user: user.new_user,
       NotificationStatus: user.notificationStatus,
       googleAccount: user.googleAccount,
+      // Computed from SUPER_ADMIN_EMAILS env var, not stored in DB.
+      // Frontend reads this to gate the admin sidebar entry and route.
+      isAdmin: this.isSuperAdminEmail(user.email),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

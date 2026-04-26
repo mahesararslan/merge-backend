@@ -96,6 +96,26 @@ export class UserService {
   }
 
   async findOne(id: string): Promise<User> {
+    if (id === '__super_admin__') {
+      const email = this.configService.get<string>('SUPER_ADMIN_EMAIL') ?? '';
+      return {
+        id: '__super_admin__',
+        email,
+        firstName: 'Super',
+        lastName: 'Admin',
+        role: null,
+        image: null,
+        new_user: false,
+        googleAccount: false,
+        notificationStatus: 'default',
+        subscriptionTier: 'free',
+        suspendedAt: null,
+        suspendedReason: null,
+        tags: [],
+        // formatUserProfile will set isAdmin: true because email matches env
+      } as any;
+    }
+
     const user = await this.userRepository.findOne({
       where: { id },
       relations: ['auth', 'tags'],

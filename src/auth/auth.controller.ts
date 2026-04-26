@@ -50,6 +50,19 @@ export class AuthController {
 
   @Public()
   @HttpCode(HttpStatus.OK)
+  @Post('admin/signin')
+  async adminSignin(
+    @Body() body: { email: string; password: string },
+    @Req() req,
+    @Res({ passthrough: true }) res,
+  ) {
+    const result = await this.authService.adminSignin(body.email, body.password);
+    this.setAuthCookies(req, res, result.token, result.refreshToken);
+    return { success: true };
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
   @Get('verify')
   async verifyEmail(@Query('token') token: string, @Req() req, @Res({ passthrough: true }) res) {
     const result = await this.authService.verifyEmail(token);

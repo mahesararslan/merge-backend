@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { UserService } from 'src/user/user.service';
 import { compare } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
@@ -21,12 +22,17 @@ import { SendOTPDto } from './dto/send-otp.dto';
 import { Toggle2FADto } from './dto/toggle2fa.dto';
 import { LoginWithOTPDto } from './dto/otp-signin.dto';
 
+// Stable ID used as JWT `sub` for the virtual super-admin user.
+// No DB row needed — this string in the token is the signal.
+const SUPER_ADMIN_JWT_ID = '__super_admin__';
+
 @Injectable()
 export class AuthService {
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
     private mailService: MailService,
+    private configService: ConfigService,
     @Inject(refreshJwtConfig.KEY)
     private refreshTokenConfig: ConfigType<typeof refreshJwtConfig>,
   ) {}
@@ -191,10 +197,31 @@ export class AuthService {
   }
 
   async validateJwtUser(userId: string) {
+    // Virtual super-admin — no DB lookup needed.
+    if (userId === SUPER_ADMIN_JWT_ID) {
+      const email = this.configService.get<string>('SUPER_ADMIN_EMAIL') ?? '';
+      return { id: SUPER_ADMIN_JWT_ID, email, role: null } as CurrentUser;
+    }
     const user = await this.userService.findOne(userId);
     if (!user) throw new UnauthorizedException('User not found');
     const currentUser: CurrentUser = { id: user.id, email: user.email, role: user.role };
     return currentUser;
+  }
+
+  async adminSignin(email: string, password: string) {
+    const adminEmail = this.configService.get<string>('SUPER_ADMIN_EMAIL') ?? '';
+    const adminPassword = this.configService.get<string>('SUPER_ADMIN_PASSWORD') ?? '';
+
+    if (
+      !adminEmail || !adminPassword ||
+      email.toLowerCase() !== adminEmail.toLowerCase() ||
+      password !== adminPassword
+    ) {
+      throw new UnauthorizedException('Invalid admin credentials');
+    }
+
+    const { accessToken, refreshToken } = await this.generateTokens(SUPER_ADMIN_JWT_ID);
+    return { token: accessToken, refreshToken };
   }
 
   // refresh token rotation, everytime user refreshes access token, a new refresh token is also generated.

@@ -15,6 +15,7 @@ import { PlanTier } from './subscription-plan.entity';
 export enum UserRole {
   INSTRUCTOR = 'instructor',
   STUDENT = 'student',
+  SUPER_ADMIN = 'super_admin',
 }
 
 export enum NotificationStatus {
@@ -77,6 +78,12 @@ export class User {
 
   @OneToOne(() => UserAuth, (auth) => auth.user, { cascade: true, eager: true })
   auth: UserAuth;
+
+  @Column({ name: 'suspended_at', type: 'timestamptz', nullable: true })
+  suspendedAt: Date | null;
+
+  @Column({ name: 'suspended_reason', type: 'text', nullable: true })
+  suspendedReason: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

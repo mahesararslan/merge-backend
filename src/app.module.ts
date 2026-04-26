@@ -33,6 +33,7 @@ import { LiveQnaModule } from './live-qna/live-qna.module';
 import { CanvasModule } from './canvas/canvas.module';
 import { RewardsModule } from './rewards/rewards.module';
 import { SubscriptionModule } from './subscription/subscription.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { SubscriptionModule } from './subscription/subscription.module';
     CanvasModule,
     RewardsModule,
     SubscriptionModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

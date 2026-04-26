@@ -24,6 +24,13 @@ export class MailService {
   }
 
   async sendVerificationEmail(email: string, name: string, verificationToken: string): Promise<void> {
+    if (!verificationToken) {
+      this.logger.error(
+        `Refusing to send verification email to ${email}: missing verificationToken. ` +
+        `This usually means the user.auth relation was not loaded by the caller.`,
+      );
+      return;
+    }
     const verificationUrl = `${this.configService.get('FRONTEND_URL')}/verify?token=${verificationToken}`;
     
 

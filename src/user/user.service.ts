@@ -4,6 +4,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -62,7 +63,19 @@ export class UserService {
       auth: userAuth,
     });
 
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    // Re-fetch with the auth relation so the caller can rely on user.auth
+    // being populated. The inverse-side cascade insert can leave the in-memory
+    // user.auth empty, which previously caused verification emails to be sent
+    // with `?token=undefined`.
+    const reloaded = await this.userRepository.findOne({
+      where: { id: saved.id },
+      relations: ['auth'],
+    });
+    if (!reloaded) {
+      throw new InternalServerErrorException('User creation failed');
+    }
+    return reloaded;
   }
 
   async findAll(): Promise<User[]> {

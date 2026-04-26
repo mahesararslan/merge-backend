@@ -38,7 +38,7 @@ export class AuthService {
       await this.mailService.sendVerificationEmail(
         user.email,
         `${user.firstName} ${user.lastName}` || 'User',
-        user.auth?.verificationToken,
+        user.auth.verificationToken,
       );
       throw new UnauthorizedException(
         'Please verify your email to login, A link has been sent to your email',
@@ -62,11 +62,10 @@ export class AuthService {
 
     // Send verification email if not a Google account
     if (!user.googleAccount) {
-      console.log('Reached here to send email');
       await this.mailService.sendVerificationEmail(
         user.email,
         `${user.firstName} ${user.lastName}` || 'User',
-        user.auth?.verificationToken,
+        user.auth.verificationToken,
       );
     }
 

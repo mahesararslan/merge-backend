@@ -103,7 +103,11 @@ export class SubscriptionService {
       checkoutData: {
         email: user.email,
         name: `${user.firstName} ${user.lastName}`,
-        custom: { userId },
+        // Both userId + badgeId travel back to us in the webhook so we can
+        // mark the right badge as redeemed when the order completes.
+        custom: bestBadge
+          ? { userId, badgeId: bestBadge.id }
+          : { userId },
         discountCode: bestBadge?.lsDiscountCode ?? undefined,
       },
       productOptions: {
@@ -154,14 +158,21 @@ export class SubscriptionService {
     const eventName: string = payload?.meta?.event_name;
     const attrs = payload?.data?.attributes ?? {};
     const customData = payload?.meta?.custom_data ?? {};
-    const userId: string | undefined = customData?.userId;
+    // LemonSqueezy converts custom data keys to snake_case in webhooks
+    const userId: string | undefined = customData?.userId ?? customData?.user_id;
+    const badgeId: string | undefined = customData?.badgeId ?? customData?.badge_id;
 
-    this.logger.log(`Webhook received: ${eventName}`);
+    this.logger.log(`Webhook received: ${eventName} (userId=${userId ?? 'none'}, badgeId=${badgeId ?? 'none'})`);
 
     switch (eventName) {
       case 'subscription_created':
       case 'subscription_updated':
+      case 'subscription_resumed':
         await this.upsertSubscription(userId, attrs, payload.data.id);
+        // If a badge discount was used, mark it redeemed
+        if (eventName === 'subscription_created' && badgeId) {
+          await this.markBadgeRedeemed(badgeId, userId);
+        }
         break;
 
       case 'subscription_cancelled':
@@ -174,6 +185,12 @@ export class SubscriptionService {
 
       case 'order_created':
         await this.handleOrderCreated(userId, attrs, payload.data.id);
+        if (badgeId) await this.markBadgeRedeemed(badgeId, userId);
+        break;
+
+      case 'subscription_payment_success':
+        await this.handlePaymentSuccess(userId, attrs, payload.data.id);
+        if (badgeId) await this.markBadgeRedeemed(badgeId, userId);
         break;
 
       case 'subscription_payment_failed':
@@ -182,6 +199,17 @@ export class SubscriptionService {
 
       default:
         this.logger.log(`Unhandled webhook event: ${eventName}`);
+    }
+  }
+
+  private async markBadgeRedeemed(badgeId: string, userId: string | undefined): Promise<void> {
+    if (!userId) return;
+    const result = await this.userBadgeRepo.update(
+      { id: badgeId, user: { id: userId } },
+      { isRedeemed: true },
+    );
+    if (result.affected) {
+      this.logger.log(`Marked UserBadge ${badgeId} as redeemed`);
     }
   }
 
@@ -262,6 +290,36 @@ export class SubscriptionService {
         { isRedeemed: true },
       );
     }
+  }
+
+  /**
+   * Records a successful subscription invoice payment.
+   * The webhook payload `data` is a subscription-invoice; total is in cents.
+   * `attrs.subscription_id` links it back to the LS subscription.
+   */
+  private async handlePaymentSuccess(userId: string | undefined, attrs: any, lsInvoiceId: string): Promise<void> {
+    if (!userId) return;
+
+    // Idempotency — skip if we already recorded this invoice
+    const exists = await this.paymentRepo.findOne({ where: { lsOrderId: lsInvoiceId } });
+    if (exists) return;
+
+    const lsSubId = String(attrs.subscription_id ?? '');
+    const sub = lsSubId
+      ? await this.subscriptionRepo.findOne({ where: { lsSubscriptionId: lsSubId } })
+      : await this.subscriptionRepo.findOne({ where: { user: { id: userId } } });
+
+    const record = this.paymentRepo.create({
+      user: { id: userId } as User,
+      subscription: sub ?? undefined,
+      amountPkr: Number(attrs.total ?? 0) / 100, // LS sends total in cents
+      status: PaymentStatus.PAID,
+      lsOrderId: lsInvoiceId,
+      invoiceUrl: attrs.urls?.invoice_url ?? null,
+      paidAt: attrs.created_at ? new Date(attrs.created_at) : new Date(),
+    });
+    await this.paymentRepo.save(record);
+    this.logger.log(`Recorded payment ${lsInvoiceId} for user ${userId} (PKR ${record.amountPkr})`);
   }
 
   private async handlePaymentFailed(lsSubId: string, userId: string | undefined): Promise<void> {

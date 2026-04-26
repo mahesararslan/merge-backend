@@ -66,6 +66,18 @@ export class AssignmentController {
     return this.assignmentService.findAllForStudent(queryDto, req.user.id);
   }
 
+  /** Pending assignments across all rooms the user has joined or owns — for student dashboard */
+  @Get('my/pending')
+  findAllPendingForUser(@Request() req, @Query('limit') limit?: string) {
+    return this.assignmentService.findAllPendingForUser(req.user.id, limit ? +limit : 5);
+  }
+
+  /** Active assignments across all rooms the instructor owns — for instructor dashboard */
+  @Get('my/instructor-active')
+  findActiveForInstructor(@Request() req, @Query('limit') limit?: string) {
+    return this.assignmentService.findActiveForInstructor(req.user.id, limit ? +limit : 5);
+  }
+
   @Get('student/:id')
   @UseGuards(RoomRoleGuard)
   @RoomRoles(RoomMemberRole.MEMBER, RoomMemberRole.MODERATOR)

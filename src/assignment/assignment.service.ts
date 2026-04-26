@@ -350,6 +350,115 @@ export class AssignmentService {
     };
   }
 
+  /**
+   * Returns all active assignments authored by this instructor across every room they own.
+   * Used by the instructor dashboard.
+   */
+  async findActiveForInstructor(instructorId: string, limit = 5) {
+    const adminRooms = await this.roomRepository.find({ where: { admin: { id: instructorId } } });
+    const roomIds = adminRooms.map((r) => r.id);
+    if (roomIds.length === 0) return [];
+
+    const assignments = await this.assignmentRepository
+      .createQueryBuilder('assignment')
+      .leftJoinAndSelect('assignment.room', 'room')
+      .leftJoinAndSelect('assignment.author', 'author')
+      .where('assignment.room.id IN (:...roomIds)', { roomIds })
+      .andWhere('assignment.isClosed = false')
+      .andWhere('assignment.isPublished = true')
+      .orderBy('assignment.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
+
+    return Promise.all(
+      assignments.map(async (a) => {
+        const totalAttempts = await this.attemptRepository.count({
+          where: { assignment: { id: a.id } },
+        });
+        const gradedAttempts = await this.attemptRepository.count({
+          where: { assignment: { id: a.id }, score: Not(IsNull()) },
+        });
+        return {
+          id: a.id,
+          title: a.title,
+          description: a.description,
+          endAt: a.endAt,
+          totalScore: a.totalScore,
+          totalAttempts,
+          gradedAttempts,
+          ungradedAttempts: totalAttempts - gradedAttempts,
+          room: a.room ? { id: a.room.id, title: a.room.title } : null,
+        };
+      }),
+    );
+  }
+
+  /**
+   * Returns all pending assignments for a user across every room they are a member of.
+   * Used by the dashboard "Pending Assignments" widget.
+   */
+  async findAllPendingForUser(userId: string, limit = 5) {
+    const now = new Date();
+
+    // Find all rooms where the user is a member OR admin
+    const memberRooms = await this.roomMemberRepository.find({
+      where: { user: { id: userId } },
+      relations: ['room'],
+    });
+    const adminRooms = await this.roomRepository.find({ where: { admin: { id: userId } } });
+    const roomIds = [
+      ...memberRooms.map((m) => m.room.id),
+      ...adminRooms.map((r) => r.id),
+    ];
+    if (roomIds.length === 0) return [];
+
+    const queryBuilder = this.assignmentRepository
+      .createQueryBuilder('assignment')
+      .leftJoinAndSelect('assignment.room', 'room')
+      .leftJoinAndSelect('assignment.author', 'author')
+      .where('assignment.room.id IN (:...roomIds)', { roomIds })
+      .andWhere('assignment.isPublished = true')
+      .andWhere('assignment.isClosed = false');
+
+    // No submission yet from this user
+    queryBuilder.andWhere((qb) => {
+      const sub = qb
+        .subQuery()
+        .select('1')
+        .from('assignment_attempts', 'attempt')
+        .where('attempt.assignmentId = assignment.id')
+        .andWhere('attempt.userId = :userId', { userId })
+        .getQuery();
+      return `NOT EXISTS ${sub}`;
+    });
+
+    // Deadline not passed (or late submission allowed)
+    queryBuilder.andWhere(
+      '(assignment.endAt IS NULL OR assignment.endAt > :now OR assignment.isTurnInLateEnabled = true)',
+      { now },
+    );
+
+    const assignments = await queryBuilder
+      .orderBy('assignment.endAt', 'ASC', 'NULLS LAST')
+      .take(limit)
+      .getMany();
+
+    return assignments.map((a) => ({
+      id: a.id,
+      title: a.title,
+      description: a.description,
+      endAt: a.endAt,
+      totalScore: a.totalScore,
+      isTurnInLateEnabled: a.isTurnInLateEnabled,
+      author: a.author ? {
+        id: a.author.id,
+        firstName: a.author.firstName,
+        lastName: a.author.lastName,
+      } : null,
+      room: a.room ? { id: a.room.id, title: a.room.title } : null,
+    }));
+  }
+
   async findAllForStudent(queryDto: QueryStudentAssignmentDto, userId: string) {
     const { page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'DESC', search, roomId, filter = 'all' } = queryDto;
     const skip = (page - 1) * limit;

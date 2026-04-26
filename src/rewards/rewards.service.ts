@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserStreak } from '../entities/user-streak.entity';
@@ -17,9 +17,10 @@ const SCHEDULED_COUNT: Record<ChallengeType, number> = {
   [ChallengeType.MONTHLY]: 2,
 };
 
+// ⚠️ TEST VALUES — change back to 7/4/1 before production
 const BADGE_CONSECUTIVE_THRESHOLD: Record<ChallengeType, number> = {
-  [ChallengeType.DAILY]: 7,
-  [ChallengeType.WEEKLY]: 4,
+  [ChallengeType.DAILY]: 1,   // prod: 7
+  [ChallengeType.WEEKLY]: 1,  // prod: 4
   [ChallengeType.MONTHLY]: 1,
 };
 
@@ -30,7 +31,7 @@ const BADGE_TIER_MAP: Record<ChallengeType, BadgeTier> = {
 };
 
 @Injectable()
-export class RewardsService {
+export class RewardsService implements OnModuleInit {
   private readonly logger = new Logger(RewardsService.name);
 
   constructor(
@@ -49,6 +50,58 @@ export class RewardsService {
     private notificationService: NotificationService,
     private configService: ConfigService,
   ) {}
+
+  // ─── Seed on startup ──────────────────────────────────────────────────────
+
+  async onModuleInit(): Promise<void> {
+    await this.seedBadges();
+    await this.seedChallengeDefinitions();
+  }
+
+  private async seedBadges(): Promise<void> {
+    const defs = [
+      { name: 'Daily Champion',  description: 'Complete all your daily challenges to unlock 10% off',   icon: 'flame',     tier: BadgeTier.DAILY,   discountPercentage: 10 },
+      { name: 'Weekly Scholar',  description: 'Complete all your weekly challenges to unlock 20% off',  icon: 'book-open', tier: BadgeTier.WEEKLY,  discountPercentage: 20 },
+      { name: 'Monthly Master',  description: 'Complete all your monthly challenges to unlock 30% off', icon: 'trophy',    tier: BadgeTier.MONTHLY, discountPercentage: 30 },
+    ];
+    for (const def of defs) {
+      const exists = await this.badgeRepo.findOne({ where: { name: def.name } });
+      if (exists) {
+        await this.badgeRepo.update({ name: def.name }, { description: def.description });
+      } else {
+        await this.badgeRepo.save(this.badgeRepo.create(def));
+        this.logger.log(`Seeded badge: ${def.name}`);
+      }
+    }
+  }
+
+  private async seedChallengeDefinitions(): Promise<void> {
+    const defs = [
+      // Daily — ⚠️ targets set to 1 for testing. Prod: Task Sprinter→3, Note Creator→2
+      { name: 'Task Sprinter',    description: 'Complete 1 calendar task before its deadline',   icon: 'check-circle', tier: ChallengeType.DAILY,   actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 1,  points: 10 },
+      { name: 'Note Creator',     description: 'Create 1 note today',                            icon: 'file-text',    tier: ChallengeType.DAILY,   actionType: ChallengeAction.NOTE_CREATED,            target: 1,  points: 10 },
+      { name: 'Quiz Taker',       description: 'Complete a quiz today',                          icon: 'help-circle',  tier: ChallengeType.DAILY,   actionType: ChallengeAction.QUIZ_COMPLETED,           target: 1,  points: 15 },
+      { name: 'Homework Hero',    description: 'Submit an assignment today',                      icon: 'upload',       tier: ChallengeType.DAILY,   actionType: ChallengeAction.ASSIGNMENT_SUBMITTED,     target: 1,  points: 15 },
+      // Weekly (pool ≥ 3)
+      { name: 'Weekly Achiever',  description: 'Complete 10 tasks this week',                     icon: 'target',       tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 10, points: 50 },
+      { name: 'Knowledge Builder',description: 'Create 5 notes this week',                        icon: 'book',         tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.NOTE_CREATED,            target: 5,  points: 50 },
+      { name: 'Quiz Champion',    description: 'Complete 3 quizzes this week',                    icon: 'award',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.QUIZ_COMPLETED,           target: 3,  points: 60 },
+      { name: 'Live Learner',     description: 'Attend a live session this week',                 icon: 'video',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.LIVE_SESSION_ATTENDED,   target: 1,  points: 40 },
+      // Monthly (pool ≥ 2)
+      { name: 'Monthly Champion', description: 'Complete 30 tasks this month',                    icon: 'star',         tier: ChallengeType.MONTHLY, actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 30, points: 200 },
+      { name: 'Scholar',          description: 'Create 20 notes this month',                      icon: 'book-open',    tier: ChallengeType.MONTHLY, actionType: ChallengeAction.NOTE_CREATED,            target: 20, points: 150 },
+    ];
+    for (const def of defs) {
+      const exists = await this.challengeDefRepo.findOne({ where: { name: def.name } });
+      if (exists) {
+        // Update target in case it changed (for testing vs production)
+        await this.challengeDefRepo.update({ name: def.name }, { target: def.target, description: def.description });
+      } else {
+        await this.challengeDefRepo.save(this.challengeDefRepo.create(def));
+        this.logger.log(`Seeded challenge: ${def.name}`);
+      }
+    }
+  }
 
   // ─── Scheduling ────────────────────────────────────────────────────────────
 
@@ -115,16 +168,13 @@ export class RewardsService {
 
   async onAction(userId: string, action: ChallengeAction, value?: number): Promise<void> {
     try {
-      if (action === ChallengeAction.CALENDAR_TASK_COMPLETED) {
-        await this.updateStreak(userId, new Date());
-      }
-
       if (action === ChallengeAction.FOCUS_SCORE && (!value || value < 75)) return;
 
       // Find all challenge definitions that match this action
       const matchingDefs = await this.challengeDefRepo.find({
         where: { actionType: action, isActive: true },
       });
+      this.logger.log(`onAction(${action}) for user ${userId}: ${matchingDefs.length} matching def(s)`);
       if (matchingDefs.length === 0) return;
 
       const now = new Date();
@@ -140,10 +190,14 @@ export class RewardsService {
           });
           const scheduled = this.getScheduledDefs(allForTier, def.tier, periodStart);
           tierCache.set(def.tier, new Set(scheduled.map((d) => d.id)));
+          this.logger.log(`  ${def.tier} scheduled today: ${scheduled.map((d) => d.name).join(', ')}`);
         }
 
         if (tierCache.get(def.tier)!.has(def.id)) {
+          this.logger.log(`  ✓ Incrementing "${def.name}" (${def.tier})`);
           await this.incrementChallengeProgress(userId, def);
+        } else {
+          this.logger.log(`  ✗ "${def.name}" (${def.tier}) not scheduled today, skipping`);
         }
       }
     } catch (error: any) {
@@ -288,9 +342,12 @@ export class RewardsService {
     try {
       const apiKey = this.configService.get<string>('LEMON_SQUEEZY_API_KEY');
       const storeId = this.configService.get<string>('LEMON_SQUEEZY_STORE_ID');
-      if (!apiKey || apiKey.startsWith('your_') || !storeId) return null;
+      if (!apiKey || apiKey.startsWith('your_') || !storeId) {
+        this.logger.warn(`LS not configured — apiKey set: ${!!apiKey}, storeId: ${storeId}`);
+        return null;
+      }
 
-      const code = `BADGE-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const code = `BADGE${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
       const response = await fetch('https://api.lemonsqueezy.com/v1/discounts', {
         method: 'POST',
         headers: {
@@ -302,21 +359,25 @@ export class RewardsService {
           data: {
             type: 'discounts',
             attributes: {
-              name: `Badge Reward ${discountPercent}% Off`,
+              name: `Badge ${discountPercent}% Off`,
               code,
               amount: discountPercent,
               amount_type: 'percent',
               is_limited_to_products: false,
               is_limited_redemptions: true,
               max_redemptions: 1,
-              status: 'published',
             },
-            relationships: { store: { data: { type: 'stores', id: storeId } } },
+            relationships: { store: { data: { type: 'stores', id: String(storeId) } } },
           },
         }),
       });
 
-      if (!response.ok) return null;
+      if (!response.ok) {
+        const body = await response.text();
+        this.logger.error(`LS discount creation failed (${response.status}): ${body}`);
+        return null;
+      }
+      this.logger.log(`Created LS discount code ${code} (${discountPercent}% off)`);
       return code;
     } catch (error: any) {
       this.logger.error(`LS discount code creation failed: ${error.message}`);
@@ -324,11 +385,62 @@ export class RewardsService {
     }
   }
 
+  /** Backfills discount codes for badges that have isDiscountCode=null */
+  /**
+   * Lazy retry — attempts to create discount codes for any earned badges
+   * that don't have one yet. Called automatically on every rewards profile fetch
+   * so failures during initial badge award self-heal next time the user visits /rewards.
+   */
+  async backfillMissingDiscountCodes(userId?: string): Promise<{ fixed: number }> {
+    const where: any = userId ? { user: { id: userId } } : {};
+    const badges = await this.userBadgeRepo.find({ where, relations: ['badge'] });
+    const needsCode = badges.filter((b) => !b.lsDiscountCode);
+    if (needsCode.length === 0) return { fixed: 0 };
+
+    let fixed = 0;
+    for (const ub of needsCode) {
+      const code = await this.createLsDiscountCode(ub.badge.discountPercentage);
+      if (code) {
+        await this.userBadgeRepo.update({ id: ub.id }, { lsDiscountCode: code });
+        fixed++;
+      }
+    }
+    if (fixed > 0) this.logger.log(`Auto-backfilled ${fixed} discount code(s)${userId ? ` for user ${userId}` : ''}`);
+    return { fixed };
+  }
+
   // ─── Query methods ─────────────────────────────────────────────────────────
 
   async getUserRewardsProfile(userId: string) {
+    // Tick the daily-usage streak — viewing the rewards page / dashboard counts as a "login"
+    await this.updateStreak(userId, new Date()).catch((e) =>
+      this.logger.error(`Streak update failed: ${e.message}`),
+    );
+
+    // Self-heal: retry creating LemonSqueezy discount codes for any badges
+    // that didn't get one when first awarded (e.g. LS API was down or misconfigured).
+    // Fire-and-forget so it doesn't slow down the response.
+    this.backfillMissingDiscountCodes(userId).catch((e) =>
+      this.logger.error(`Auto-backfill failed: ${e.message}`),
+    );
+
     const streak = await this.streakRepo.findOne({ where: { user: { id: userId } } });
-    const badges = await this.userBadgeRepo.find({ where: { user: { id: userId } }, relations: ['badge'] });
+
+    // Return ALL badge definitions enriched with the user's earned status
+    const allBadges = await this.badgeRepo.find({
+      where: { isActive: true },
+      order: { discountPercentage: 'ASC' },
+    });
+    const userBadges = await this.userBadgeRepo.find({
+      where: { user: { id: userId } },
+      relations: ['badge'],
+    });
+    const userBadgeMap = new Map(userBadges.map((ub) => [ub.badge.id, ub]));
+    const badges = allBadges.map((badge) => ({
+      badge,
+      userBadge: userBadgeMap.get(badge.id) ?? null,
+    }));
+
     const challenges = await this.getUserChallenges(userId);
     const totalPoints = challenges
       .filter((c) => c.isCompleted)

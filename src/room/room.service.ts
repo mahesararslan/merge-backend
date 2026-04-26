@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   ConflictException,
@@ -7,8 +8,10 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
+import axios from 'axios';
 import { Room } from '../entities/room.entity';
 import { User } from '../entities/user.entity';
 import { TagService } from '../tag/tag.service';
@@ -31,6 +34,8 @@ import { ChallengeAction } from '../entities/challenge-definition.entity';
 
 @Injectable()
 export class RoomService {
+  private readonly logger = new Logger(RoomService.name);
+
   constructor(
     @InjectRepository(Room)
     private roomRepository: Repository<Room>,
@@ -50,6 +55,7 @@ export class RoomService {
     @Inject(forwardRef(() => FileService))
     private fileService: FileService,
     private rewardsService: RewardsService,
+    private configService: ConfigService,
   ) {}
 
   private generateRoomCode(): string {
@@ -95,8 +101,10 @@ export class RoomService {
     });
 
     const savedRoom = await this.roomRepository.save(room);
-    this.rewardsService.onAction(adminId, ChallengeAction.ROOM_CREATED).catch(() => {});
-    this.rewardsService.onAction(adminId, ChallengeAction.ROOM_JOINED).catch(() => {});
+    this.rewardsService.onAction(adminId, ChallengeAction.ROOM_CREATED)
+      .catch((e) => console.error('Reward ROOM_CREATED failed:', e?.message ?? e));
+    this.rewardsService.onAction(adminId, ChallengeAction.ROOM_JOINED)
+      .catch((e) => console.error('Reward ROOM_JOINED failed:', e?.message ?? e));
     return this.formatRoomResponse(savedRoom);
   }
 
@@ -392,7 +400,81 @@ export class RoomService {
       throw new ForbiddenException('Only room admin can delete the room');
     }
 
-    await this.roomRepository.remove(room);
+    // Best-effort: bulk-purge vector embeddings for every file in this
+    // room. Fire-and-forget — if the AI service is unreachable we still
+    // want the DB delete to succeed.
+    this.purgeRoomVectors(id).catch((err) =>
+      this.logger.error(
+        `Failed to purge vectors for room ${id}: ${err.message}`,
+      ),
+    );
+
+    // Cascade-delete every piece of content tied to the room. FKs with
+    // onDelete: 'CASCADE' (room_members, room_join_requests, room_tags,
+    // live_sessions and their attendees, live_qna_questions and votes,
+    // live_video_permissions) are cleaned up by Postgres when the room
+    // row is removed at the end. Everything else has to go explicitly.
+    await this.roomRepository.manager.transaction(async (m) => {
+      // Quizzes — questions cascade via TypeORM, attempts do not.
+      await m.query(
+        'DELETE FROM quiz_attempts WHERE "quizId" IN (SELECT id FROM quizzes WHERE "roomId" = $1)',
+        [id],
+      );
+      await m.query(
+        'DELETE FROM quiz_questions WHERE "quizId" IN (SELECT id FROM quizzes WHERE "roomId" = $1)',
+        [id],
+      );
+      await m.query('DELETE FROM quizzes WHERE "roomId" = $1', [id]);
+
+      // Assignments — attempts have no cascade.
+      await m.query(
+        'DELETE FROM assignment_attempts WHERE "assignmentId" IN (SELECT id FROM assignments WHERE "roomId" = $1)',
+        [id],
+      );
+      await m.query('DELETE FROM assignments WHERE "roomId" = $1', [id]);
+
+      // Announcements & general chat messages.
+      await m.query('DELETE FROM announcements WHERE "roomId" = $1', [id]);
+      await m.query(
+        'DELETE FROM general_chat_messages WHERE "roomId" = $1',
+        [id],
+      );
+
+      // Files — covers files at the room root and inside any room folder.
+      await m.query(
+        'DELETE FROM files WHERE "roomId" = $1 OR "folderId" IN (SELECT id FROM folders WHERE "roomId" = $1)',
+        [id],
+      );
+
+      // Notes that live inside this room's folders.
+      await m.query(
+        'DELETE FROM notes WHERE "folderId" IN (SELECT id FROM folders WHERE "roomId" = $1)',
+        [id],
+      );
+
+      // Folders. The self-referential parentFolderId FK has no cascade,
+      // so detach first then bulk delete inside the same transaction.
+      await m.query(
+        'UPDATE folders SET "parentFolderId" = NULL WHERE "roomId" = $1',
+        [id],
+      );
+      await m.query('DELETE FROM folders WHERE "roomId" = $1', [id]);
+
+      // Finally drop the room itself; the CASCADE FKs above clean up.
+      await m.delete(Room, id);
+    });
+  }
+
+  private async purgeRoomVectors(roomId: string): Promise<void> {
+    const aiServiceUrl =
+      this.configService.get<string>('AI_SERVICE_URL') ||
+      'http://localhost:8001';
+    const apiKey = this.configService.get<string>('AI_SERVICE_API_KEY');
+    if (!apiKey) return;
+    await axios.delete(`${aiServiceUrl}/ingest/room/${roomId}`, {
+      timeout: 10000,
+      headers: { 'X-API-Key': apiKey },
+    });
   }
 
   async findByRoomCode(roomCode: string): Promise<Room> {
@@ -1441,6 +1523,7 @@ export class RoomService {
       lastName: user.lastName,
       email: user.email,
       image: user.image,
+      role: user.role,
     };
   }
 

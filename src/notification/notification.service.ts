@@ -29,7 +29,7 @@ export class NotificationService {
     private firebaseService: FirebaseService,
     private httpService: HttpService,
     private configService: ConfigService,
-  ) {}
+  ) { }
 
   async createAnnouncementNotifications(announcement: Announcement): Promise<void> {
     try {
@@ -70,7 +70,7 @@ export class NotificationService {
             announcementId: announcement.id,
             announcementTitle: announcement.title,
             authorId: announcement.author.id,
-            actionUrl: `/rooms/${announcement.room.id}/announcements/${announcement.id}`,
+            actionUrl: `/rooms/${announcement.room.id}/announcements`,
           },
           isRead: false,
           pushSent: false,
@@ -95,7 +95,7 @@ export class NotificationService {
           announcementId: announcement.id,
           announcementTitle: announcement.title,
           authorId: announcement.author.id,
-          actionUrl: `/rooms/${announcement.room.id}/announcements/${announcement.id}`,
+          actionUrl: `/rooms/${announcement.room.id}/announcements`,
         },
         savedIds,
       ).catch((error: any) => {
@@ -483,17 +483,17 @@ export class NotificationService {
       // Determine title prefix based on notification type
       const titlePrefix =
         data.type === 'assignment' ? 'New Assignment' :
-        data.type === 'quiz' ? 'New Quiz' :
-        data.type === 'live-session-created' ? 'Session Created' :
-        data.type === 'live-session-started' ? 'Session Started' :
-        data.type === 'live-session-reminder' ? 'Session Reminder' :
-        data.type === 'assignment-due-soon' ? 'Assignment Due Soon' :
-        data.type === 'quiz-due-soon' ? 'Quiz Due Soon' :
-        data.type === 'calendar-reminder' ? 'Calendar Reminder' :
-        data.type === 'assignment-submitted' ? 'Assignment Submitted' :
-        data.type === 'assignment-graded' ? 'Assignment Graded' :
-        data.type === 'quiz-submitted' ? 'Quiz Submitted' :
-        'New Announcement';
+          data.type === 'quiz' ? 'New Quiz' :
+            data.type === 'live-session-created' ? 'Session Created' :
+              data.type === 'live-session-started' ? 'Session Started' :
+                data.type === 'live-session-reminder' ? 'Session Reminder' :
+                  data.type === 'assignment-due-soon' ? 'Assignment Due Soon' :
+                    data.type === 'quiz-due-soon' ? 'Quiz Due Soon' :
+                      data.type === 'calendar-reminder' ? 'Calendar Reminder' :
+                        data.type === 'assignment-submitted' ? 'Assignment Submitted' :
+                          data.type === 'assignment-graded' ? 'Assignment Graded' :
+                            data.type === 'quiz-submitted' ? 'Quiz Submitted' :
+                              'New Announcement';
 
       // Send multicast notification
       const result = await this.firebaseService.sendMulticast(tokens, {

@@ -222,7 +222,7 @@ export class NotificationService {
             quizId: quiz.id,
             quizTitle: quiz.title,
             authorId: quiz.author.id,
-            actionUrl: `/rooms/${quiz.room.id}/quizzes/${quiz.id}`,
+            actionUrl: `/rooms/${quiz.room.id}/quizzes`,
           },
           isRead: false,
           pushSent: false,
@@ -247,7 +247,7 @@ export class NotificationService {
           quizId: quiz.id,
           quizTitle: quiz.title,
           authorId: quiz.author.id,
-          actionUrl: `/rooms/${quiz.room.id}/quizzes/${quiz.id}`,
+          actionUrl: `/rooms/${quiz.room.id}/quizzes`,
         },
         savedIds,
       ).catch((error: any) => {
@@ -832,7 +832,7 @@ export class NotificationService {
         quizId: quiz.id,
         quizTitle: quiz.title,
         authorId: quiz.author.id,
-        actionUrl: `/rooms/${quiz.room.id}/quizzes/${quiz.id}`,
+        actionUrl: `/rooms/${quiz.room.id}/quizzes`,
       },
     );
     this.logger.log(`Sent 24hr-before-due push notification for quiz ${quiz.id}`);

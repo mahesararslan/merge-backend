@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
-import { PlanTier } from './subscription-plan.entity';
+import { PlanTier, PlanRole } from './subscription-plan.entity';
 
 // Defined here (not in user-challenge-progress.entity.ts) to avoid circular import
 export enum ChallengeType {
@@ -51,11 +51,13 @@ export class ChallengeDefinition {
   @Column({ name: 'min_plan_tier', type: 'varchar', length: 20, default: PlanTier.FREE })
   minPlanTier: PlanTier;
 
-  // Optional scheduling window. When NULL, the challenge is "evergreen" and
-  // is selected by the sliding-window scheduler. When set, the challenge is
-  // a calendar event that only appears between periodStart (inclusive) and
-  // periodEnd (exclusive). Admin-created challenges always have these set;
-  // seeded challenges leave them NULL.
+  // Which role the challenge is for. Students never see instructor-only
+  // challenges and vice-versa. ALL means the challenge applies to both.
+  @Column({ name: 'target_role', type: 'enum', enum: PlanRole, default: PlanRole.ALL })
+  targetRole: PlanRole;
+
+  // Calendar window — challenge only appears when now is in [periodStart, periodEnd).
+  // Admin-created challenges always have these set; legacy NULL rows are pruned by cron.
   @Column({ name: 'period_start', type: 'date', nullable: true })
   periodStart: Date | null;
 

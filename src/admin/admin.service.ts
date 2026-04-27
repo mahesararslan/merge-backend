@@ -5,7 +5,7 @@ import { User, UserRole } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { LiveSession } from '../entities/live-video-session.entity';
-import { SubscriptionPlan, PlanTier } from '../entities/subscription-plan.entity';
+import { SubscriptionPlan, PlanTier, PlanRole } from '../entities/subscription-plan.entity';
 import { UserSubscription, SubscriptionStatus } from '../entities/user-subscription.entity';
 import { PaymentRecord } from '../entities/payment-record.entity';
 import { Badge } from '../entities/badge.entity';
@@ -274,6 +274,7 @@ export class AdminService {
       target: Number(dto.target),
       points: Number(dto.points ?? 10),
       minPlanTier: dto.minPlanTier ?? PlanTier.FREE,
+      targetRole: dto.targetRole ?? PlanRole.ALL,
       periodStart,
       periodEnd,
       isActive: dto.isActive ?? true,
@@ -303,6 +304,7 @@ export class AdminService {
       target: dto.target != null ? Number(dto.target) : row.target,
       points: dto.points != null ? Number(dto.points) : row.points,
       minPlanTier: dto.minPlanTier ?? row.minPlanTier,
+      targetRole: dto.targetRole ?? row.targetRole,
       isActive: dto.isActive ?? row.isActive,
       ...(periodStart !== undefined ? { periodStart } : {}),
       ...(periodEnd !== undefined ? { periodEnd } : {}),

@@ -8,8 +8,8 @@ import { UserBadge } from '../entities/user-badge.entity';
 import { UserChallengeProgress, ChallengeType } from '../entities/user-challenge-progress.entity';
 import { ChallengeDefinition, ChallengeAction } from '../entities/challenge-definition.entity';
 import { UserTierMonthlyProgress } from '../entities/user-tier-monthly-progress.entity';
-import { User } from '../entities/user.entity';
-import { PlanTier } from '../entities/subscription-plan.entity';
+import { User, UserRole } from '../entities/user.entity';
+import { PlanTier, PlanRole } from '../entities/subscription-plan.entity';
 import { NotificationService } from '../notification/notification.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -108,12 +108,19 @@ export class RewardsService implements OnModuleInit {
     }
   }
 
-  // ─── Plan filter ───────────────────────────────────────────────────────────
+  // ─── Plan + role filter ────────────────────────────────────────────────────
 
-  /** Filter a list of challenge defs by what the given tier can see. */
-  private filterByPlan(defs: ChallengeDefinition[], userTier: PlanTier): ChallengeDefinition[] {
-    const userRank = PLAN_TIER_RANK[userTier] ?? 0;
-    return defs.filter((d) => (PLAN_TIER_RANK[d.minPlanTier] ?? 0) <= userRank);
+  /** Visibility filter — must satisfy both the plan-tier gate and the role gate. */
+  private filterForUser(defs: ChallengeDefinition[], user: User): ChallengeDefinition[] {
+    const userRank = PLAN_TIER_RANK[user.subscriptionTier ?? PlanTier.FREE] ?? 0;
+    const userRole = user.role;
+    return defs.filter((d) => {
+      if ((PLAN_TIER_RANK[d.minPlanTier] ?? 0) > userRank) return false;
+      if (d.targetRole === PlanRole.ALL) return true;
+      if (d.targetRole === PlanRole.STUDENT && userRole === UserRole.STUDENT) return true;
+      if (d.targetRole === PlanRole.INSTRUCTOR && userRole === UserRole.INSTRUCTOR) return true;
+      return false;
+    });
   }
 
   // ─── Public trigger method ─────────────────────────────────────────────────
@@ -134,7 +141,7 @@ export class RewardsService implements OnModuleInit {
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (!user) return;
 
-      const visibleDefs = this.filterByPlan(activeDefs, user.subscriptionTier ?? PlanTier.FREE);
+      const visibleDefs = this.filterForUser(activeDefs, user);
       if (visibleDefs.length === 0) return;
 
       this.logger.log(`onAction(${action}) for user ${userId}: ${visibleDefs.length} active def(s)`);
@@ -429,7 +436,7 @@ export class RewardsService implements OnModuleInit {
 
   async getUserChallenges(userId: string) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
-    const userTier = user?.subscriptionTier ?? PlanTier.FREE;
+    if (!user) return [];
 
     const now = new Date();
     const activeDefs = await this.challengeDefRepo
@@ -439,7 +446,7 @@ export class RewardsService implements OnModuleInit {
       .orderBy(`CASE d.tier WHEN 'daily' THEN 0 WHEN 'weekly' THEN 1 ELSE 2 END`, 'ASC')
       .addOrderBy('d.periodStart', 'ASC')
       .getMany();
-    const visibleDefs = this.filterByPlan(activeDefs, userTier);
+    const visibleDefs = this.filterForUser(activeDefs, user);
 
     const results: Array<{
       id: string; name: string; description: string; icon: string;

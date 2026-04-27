@@ -18,6 +18,7 @@ import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { LiveSession } from '../entities/live-video-session.entity';
 import { CreateLiveQnaQuestionDto } from './dto/create-live-qna-question.dto';
+import { FileService } from '../file/file.service';
 
 export interface LiveQnaQuestionResponse {
   id: string;
@@ -65,6 +66,7 @@ export class LiveQnaService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(LiveSession)
     private readonly sessionRepository: Repository<LiveSession>,
     private readonly configService: ConfigService,
+    private readonly fileService: FileService,
   ) {}
 
   onModuleInit() {
@@ -346,9 +348,29 @@ export class LiveQnaService implements OnModuleInit, OnModuleDestroy {
         },
       );
       answer = response.data?.answer ?? '';
-      sources = (response.data?.sources ?? [])
-        .map((s: any) => s.section_title)
-        .filter(Boolean);
+
+      // Resolve each cited chunk's file_id into the file's originalName so
+      // the UI shows users a real filename. Format: "filename — section"
+      // when both are available, just "filename" otherwise. Falls back to
+      // the section title alone if the file was deleted.
+      const rawSources: any[] = response.data?.sources ?? [];
+      const fileIds = rawSources.map((s) => s.file_id).filter(Boolean);
+      const nameMap = await this.fileService.getFileNamesByIds(fileIds);
+      const seen = new Set<string>();
+      sources = rawSources
+        .map((s: any) => {
+          const fileName = s.file_id ? nameMap.get(s.file_id) : undefined;
+          const section = (s.section_title || '').trim() || null;
+          if (fileName && section) return `${fileName} — ${section}`;
+          if (fileName) return fileName;
+          return section;
+        })
+        .filter((label): label is string => {
+          if (!label) return false;
+          if (seen.has(label)) return false;
+          seen.add(label);
+          return true;
+        });
     } catch (err: any) {
       this.logger.error(`askAiBot: FastAPI call failed — ${err?.message}`);
       throw new BadRequestException('AI service failed to generate an answer');

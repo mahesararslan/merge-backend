@@ -8,6 +8,7 @@ import { AiChatMessage } from '../entities/ai-chat-message.entity';
 import { ConversationAttachment } from '../entities/conversation-attachment.entity';
 import { User } from '../entities/user.entity';
 import { RoomModule } from '../room/room.module';
+import { FileModule } from '../file/file.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { RoomModule } from '../room/room.module';
     ]),
     ConfigModule,
     RoomModule,
+    FileModule,
   ],
   controllers: [AiAssistantController],
   providers: [AiAssistantService],

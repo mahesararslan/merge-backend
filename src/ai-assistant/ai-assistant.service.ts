@@ -9,6 +9,7 @@ import { AiConversation } from '../entities/ai-conversation.entity';
 import { ConversationAttachment } from '../entities/conversation-attachment.entity';
 import { User } from '../entities/user.entity';
 import { RoomService } from '../room/room.service';
+import { FileService } from '../file/file.service';
 import {
   CreateConversationDto,
   SendMessageDto,
@@ -34,6 +35,7 @@ export class AiAssistantService {
     private userRepository: Repository<User>,
     private configService: ConfigService,
     private roomService: RoomService,
+    private fileService: FileService,
   ) {
     this.aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL') || 'http://localhost:8001';
     this.aiServiceApiKey = this.configService.getOrThrow<string>('AI_SERVICE_API_KEY');
@@ -418,6 +420,12 @@ export class AiAssistantService {
 
       }
 
+      // Enrich sources with original filenames so the UI can show e.g.
+      // "lecture-3.pdf" instead of an opaque file_id UUID.
+      const enrichedSources = await this.fileService.enrichSourcesWithFileNames(
+        aiResponse.sources,
+      );
+
       // Save assistant message
       const assistantMessage = this.messageRepository.create({
         conversation,
@@ -425,7 +433,7 @@ export class AiAssistantService {
         role: MessageRole.ASSISTANT,
         content: aiResponse.answer,
         contextFileId: messageDto.contextFileId || null,
-        sources: aiResponse.sources,
+        sources: enrichedSources,
         chunksRetrieved: aiResponse.chunks_retrieved,
         processingTimeMs: aiResponse.processing_time_ms,
       });
@@ -909,6 +917,11 @@ export class AiAssistantService {
             await this.attachmentRepository.save(newAttachment);
           }
 
+          // Enrich sources with original filenames before persisting.
+          const enrichedSources = await this.fileService.enrichSourcesWithFileNames(
+            sources,
+          );
+
           // Save assistant message to database
           const assistantMessage = this.messageRepository.create({
             conversation,
@@ -916,7 +929,7 @@ export class AiAssistantService {
             role: MessageRole.ASSISTANT,
             content: fullAnswer,
             contextFileId: messageDto.contextFileId || null,
-            sources: sources,
+            sources: enrichedSources,
             chunksRetrieved: chunksRetrieved,
             processingTimeMs: processingTimeMs,
           });

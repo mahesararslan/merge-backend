@@ -9,6 +9,7 @@ import { User } from '../entities/user.entity';
 import { Room } from '../entities/room.entity';
 import { LiveSession } from '../entities/live-video-session.entity';
 import { RoomMember } from '../entities/room-member.entity';
+import { FileModule } from '../file/file.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { RoomMember } from '../entities/room-member.entity';
       LiveSession,
       RoomMember,
     ]),
+    FileModule,
   ],
   controllers: [LiveQnaController],
   providers: [LiveQnaService],

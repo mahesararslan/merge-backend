@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { File, FileType, FileProcessingStatus } from '../entities/file.entity';
 import { User } from '../entities/user.entity';
@@ -40,6 +40,39 @@ export class FileService {
     if (!this.aiServiceApiKey) {
       throw new Error('AI_SERVICE_API_KEY environment variable is required');
     }
+  }
+
+  /**
+   * Look up the original filenames for a list of file IDs in a single query.
+   * Returns a Map<fileId, originalName>; missing IDs simply aren't in the map.
+   * Used to enrich AI-source citations so users see "lecture-3.pdf" instead
+   * of an opaque UUID.
+   */
+  async getFileNamesByIds(fileIds: string[]): Promise<Map<string, string>> {
+    const unique = Array.from(new Set(fileIds.filter(Boolean)));
+    if (unique.length === 0) return new Map();
+    const files = await this.fileRepository.find({
+      where: { id: In(unique) },
+      select: ['id', 'originalName'],
+    });
+    return new Map(files.map((f) => [f.id, f.originalName]));
+  }
+
+  /**
+   * Take raw FastAPI source chunks ({file_id, section_title, ...}) and
+   * resolve each unique file_id into its originalName. Returns the same
+   * shape with an added `fileName` field (null if the file was deleted).
+   */
+  async enrichSourcesWithFileNames<
+    T extends { file_id?: string | null; section_title?: string | null },
+  >(sources: T[] | null | undefined): Promise<Array<T & { fileName: string | null }>> {
+    if (!sources || sources.length === 0) return [];
+    const ids = sources.map((s) => s.file_id ?? '').filter(Boolean);
+    const map = await this.getFileNamesByIds(ids);
+    return sources.map((s) => ({
+      ...s,
+      fileName: s.file_id ? (map.get(s.file_id) ?? null) : null,
+    }));
   }
 
   /**

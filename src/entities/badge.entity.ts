@@ -26,6 +26,11 @@ export class Badge {
   @Column()
   discountPercentage: number;
 
+  // How many challenge completions in this tier (within a calendar month)
+  // a user needs to earn this badge. Resets at the start of every month.
+  @Column({ name: 'required_count', default: 5 })
+  requiredCount: number;
+
   @Column({ default: true })
   isActive: boolean;
 }

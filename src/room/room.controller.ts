@@ -85,8 +85,8 @@ export class RoomController {
 
   // Get specific room by ID
   @Get(':roomId')
-  findOne(@Param('roomId', ParseUUIDPipe) roomId: string) {
-    return this.roomService.findOne(roomId);
+  findOne(@Param('roomId', ParseUUIDPipe) roomId: string, @Req() req) {
+    return this.roomService.findOne(roomId, req.user?.id);
   }
 
   // Update room settings

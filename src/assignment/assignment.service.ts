@@ -810,7 +810,7 @@ export class AssignmentService {
   async submitAttempt(submitAttemptDto: SubmitAttemptDto, userId: string) {
     const assignment = await this.assignmentRepository.findOne({
       where: { id: submitAttemptDto.assignmentId },
-      relations: ['room'],
+      relations: ['room', 'author'],
     });
 
     if (!assignment) {
@@ -857,6 +857,13 @@ export class AssignmentService {
 
     const saved = await this.attemptRepository.save(attempt);
     this.rewardsService.onAction(userId, ChallengeAction.ASSIGNMENT_SUBMITTED).catch(() => {});
+
+    // Notify the assignment author (instructor) — fire-and-forget so we don't
+    // delay the response if FCM is slow.
+    this.notificationService
+      .createAssignmentSubmittedNotification({ ...saved, assignment, user })
+      .catch(() => {});
+
     return this.formatAttemptResponse(saved);
   }
 
@@ -998,8 +1005,17 @@ export class AssignmentService {
       throw new ForbiddenException('Only room admin can score attempts');
     }
 
+    const wasUngraded = attempt.score === null || attempt.score === undefined;
     attempt.score = score;
     const updated = await this.attemptRepository.save(attempt);
+
+    // Notify the student only on first grade — avoids spamming on re-grades.
+    if (wasUngraded) {
+      this.notificationService
+        .createAssignmentGradedNotification(updated)
+        .catch(() => {});
+    }
+
     return this.formatAttemptResponse(updated);
   }
 
@@ -1048,9 +1064,16 @@ export class AssignmentService {
           continue;
         }
 
+        const wasUngraded = attempt.score === null || attempt.score === undefined;
         attempt.score = attemptScore.score;
         const updated = await this.attemptRepository.save(attempt);
         results.push(this.formatAttemptResponse(updated));
+
+        if (wasUngraded) {
+          this.notificationService
+            .createAssignmentGradedNotification(updated)
+            .catch(() => {});
+        }
       } catch (error: any) {
         errors.push({
           attemptId: attemptScore.attemptId,

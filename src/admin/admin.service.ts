@@ -367,8 +367,12 @@ export class AdminService {
   async updateBadge(id: string, dto: any) {
     const row = await this.badgeRepo.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Badge not found');
+    if (dto.requiredCount != null && Number(dto.requiredCount) < 1) {
+      throw new BadRequestException('requiredCount must be at least 1');
+    }
     Object.assign(row, {
       name: dto.name ?? row.name,
+      requiredCount: dto.requiredCount != null ? Number(dto.requiredCount) : row.requiredCount,
       description: dto.description ?? row.description,
       icon: dto.icon ?? row.icon,
       discountPercentage: dto.discountPercentage != null ? Number(dto.discountPercentage) : row.discountPercentage,

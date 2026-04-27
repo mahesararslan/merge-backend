@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { Response } from 'express';
 import { AiChatMessage, MessageRole } from '../entities/ai-chat-message.entity';
-import { AiConversation } from '../entities/ai-conversation.entity';
+import { AiConversation, AttachmentType } from '../entities/ai-conversation.entity';
 import { ConversationAttachment } from '../entities/conversation-attachment.entity';
 import { User } from '../entities/user.entity';
 import { RoomService } from '../room/room.service';
@@ -90,14 +90,96 @@ export class AiAssistantService {
    * string. Each file is labelled so the LLM can distinguish them.
    * Returns null when no Flow 1 attachments exist.
    */
-  private buildCombinedAttachmentContext(
+  /**
+   * Map a file's mime type / filename to the AttachmentType enum used by
+   * ConversationAttachment. Used when persisting a room-file pick — the
+   * room File entity has a looser FileType (document/image/...) and a
+   * mime, but ConversationAttachment uses AttachmentType (pdf/docx/pptx/
+   * txt/image), so we derive it here. Falls back to `txt` if nothing
+   * matches; the value is mostly cosmetic at this layer because the
+   * extracted text is already sitting in `context`.
+   */
+  private static mimeToAttachmentType(
+    mimeType: string | null | undefined,
+    originalName: string | null | undefined,
+  ): AttachmentType {
+    const m = (mimeType || '').toLowerCase();
+    const n = (originalName || '').toLowerCase();
+    const has = (s: string) => m.includes(s) || n.endsWith('.' + s);
+    if (has('pdf')) return AttachmentType.PDF;
+    if (m.includes('wordprocessingml') || has('docx')) return AttachmentType.DOCX;
+    if (m.includes('presentation') || has('pptx')) return AttachmentType.PPTX;
+    if (m.startsWith('image/') || has('png') || has('jpg') || has('jpeg') || has('gif') || has('webp')) {
+      return AttachmentType.IMAGE;
+    }
+    return AttachmentType.TXT;
+  }
+
+  /**
+   * Build the structured list of previously-extracted attachments to send
+   * to FastAPI. Ordered LATEST-FIRST (newest createdAt first) so the AI
+   * service can tag the most-recent file as "this file" when the user asks
+   * a generic follow-up like "summarize this file".
+   *
+   * Rows with no context (failed extraction or pure Flow 2) are filtered
+   * out — Flow 2 attachments are signalled via has_vector_attachment
+   * separately, and failed rows are now deleted on the spot, so this list
+   * cleanly represents Flow 1 stored text only.
+   */
+  private buildStoredAttachments(
     attachments: ConversationAttachment[],
-  ): string | null {
-    const parts = attachments
+  ): Array<{ name: string; content: string }> {
+    return attachments
       .filter((a) => a.context)
-      .map((a) => `## File: ${a.originalName}\n\n${a.context}`);
-    if (parts.length === 0) return null;
-    return parts.join('\n\n---\n\n');
+      .slice()
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((a) => ({ name: a.originalName, content: a.context as string }));
+  }
+
+  /**
+   * Persist or clean up the new attachment row after FastAPI has finished
+   * (or failed). On success, set `context` (Flow 1) or `inVectorDB` (Flow
+   * 2). On any failure mode — FastAPI errored, stream cancelled, empty
+   * extraction — delete the row. Keeping zombie rows around blocks future
+   * retries of the same S3 URL (URL-based dedup) and eats slots toward the
+   * MAX_ATTACHMENTS_PER_CONVERSATION cap.
+   */
+  private async finalizeAttachmentRow(
+    newAttachment: ConversationAttachment | null,
+    attachmentFlowUsed: string | null,
+    extractedContent: string | null,
+    extractedContentLength: number | null,
+    chunksCreatedForAttachment: number | null,
+  ): Promise<void> {
+    if (!newAttachment) return;
+
+    if (attachmentFlowUsed === 'direct_injection' && extractedContent) {
+      newAttachment.context = extractedContent;
+      await this.attachmentRepository.save(newAttachment);
+      this.logger.log(
+        `[ATTACHMENT] ✓ Flow 1 Complete: Stored attachment context ` +
+          `(${extractedContentLength || 0} chars) on attachment ${newAttachment.id}`,
+      );
+    } else if (attachmentFlowUsed === 'vector_storage') {
+      newAttachment.inVectorDB = true;
+      await this.attachmentRepository.save(newAttachment);
+      this.logger.log(
+        `[ATTACHMENT] ✓ Flow 2 Complete: Stored in vector DB ` +
+          `(${chunksCreatedForAttachment || 0} chunks) for attachment ${newAttachment.id}`,
+      );
+    } else {
+      // Either FastAPI never returned a flow_used (errored mid-stream,
+      // user cancelled, etc.) or direct_injection produced empty text.
+      // Either way the row is useless — delete it so the same URL can be
+      // retried and the slot is freed.
+      await this.attachmentRepository
+        .delete(newAttachment.id)
+        .catch(() => undefined);
+      this.logger.warn(
+        `[ATTACHMENT] Extraction failed for ${newAttachment.id} ` +
+          `(flow=${attachmentFlowUsed || 'none'}, content=${extractedContentLength || 0} chars) — row removed`,
+      );
+    }
   }
 
   /**
@@ -641,7 +723,12 @@ export class AiAssistantService {
     // - Incoming attachment new → create a row, subject to the cap of
     //   MAX_ATTACHMENTS_PER_CONVERSATION. Reject with 400 if exceeded.
     // - No incoming attachment → just reuse all stored attachments' contexts.
-    let attachmentContext: string | null = null;
+    //
+    // Cap and dedup look only at *successful* attachments (those with
+    // either Flow 1 context or Flow 2 vectors). Failed extractions are
+    // now deleted on the spot, but old null-context rows from before that
+    // fix should not block new uploads either.
+    let storedAttachments: Array<{ name: string; content: string }> = [];
     let hasVectorAttachment = false;
     let isFirstAttachment = false;
     let newAttachment: ConversationAttachment | null = null;
@@ -651,28 +738,35 @@ export class AiAssistantService {
     );
 
     const currentAttachments = conversation.attachments || [];
+    const successfulAttachments = currentAttachments.filter(
+      (a) => a.context !== null || a.inVectorDB,
+    );
+
+    const sendCapErrorAndEnd = () => {
+      const errorPayload = {
+        error: `This conversation already has the maximum of ${AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION} attached files. Start a new conversation or remove one before attaching another.`,
+      };
+      this.logger.warn(
+        `[ATTACHMENT] Rejected attachment for conversation ${conversationId} (cap reached)`,
+      );
+      res.write(`event: error\ndata: ${JSON.stringify(errorPayload)}\n\n`);
+      if (typeof (res as any).flush === 'function') (res as any).flush();
+      res.end();
+    };
 
     if (incomingAttachment) {
-      const alreadyAttached = currentAttachments.find(
+      const alreadyAttached = successfulAttachments.find(
         (a) => a.url === messageDto.attachmentS3Url,
       );
 
       if (!alreadyAttached) {
-        if (currentAttachments.length >= AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION) {
+        if (successfulAttachments.length >= AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION) {
           // Headers are already flushed by the controller, so we can't
           // throw and let the exception filter respond — that crashes
           // with ERR_HTTP_HEADERS_SENT. Emit the error as an SSE event
           // (frontend's useStreamQuery handles `event: error`) and end
           // the stream cleanly.
-          const errorPayload = {
-            error: `This conversation already has the maximum of ${AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION} attached files. Start a new conversation or remove one before attaching another.`,
-          };
-          this.logger.warn(
-            `[ATTACHMENT] Rejected 3rd attachment for conversation ${conversationId}`,
-          );
-          res.write(`event: error\ndata: ${JSON.stringify(errorPayload)}\n\n`);
-          if (typeof (res as any).flush === 'function') (res as any).flush();
-          res.end();
+          sendCapErrorAndEnd();
           return;
         }
 
@@ -702,19 +796,117 @@ export class AiAssistantService {
       }
     }
 
-    // Build combined Flow 1 context from all stored attachments that have
-    // already been processed (previous files). The new file's context is
-    // still empty at this point — FastAPI will extract it and we'll save
-    // it after the response.
-    attachmentContext = this.buildCombinedAttachmentContext(currentAttachments);
+    // Room-file attachment: the user picked a file from the in-chat
+    // RoomFilePicker. The file is already in S3 and already ingested into
+    // Qdrant; instead of re-uploading we ask FastAPI for ALL chunks of
+    // the file (ordered by chunk_index), concatenate them, and save the
+    // result as a Flow 1 ConversationAttachment. From that point on the
+    // room file behaves identically to a personal attachment — counts
+    // against the cap, included in stored_attachments on every follow-up,
+    // shows up in the file pill, etc.
+    const incomingRoomFile = !incomingAttachment && !!messageDto.contextFileId;
+    if (incomingRoomFile) {
+      const fileId = messageDto.contextFileId!;
+      const file = await this.fileService.getRoomFileForRooms(fileId, userRoomIds);
+      if (!file) {
+        this.logger.warn(
+          `[ATTACHMENT] Room file ${fileId} not accessible for user ${userId} — ignoring contextFileId`,
+        );
+      } else {
+        const dedupUrl = `room-file://${fileId}`;
+        const alreadyAttached = successfulAttachments.find(
+          (a) => a.url === dedupUrl || a.url === file.filePath,
+        );
+
+        if (!alreadyAttached) {
+          if (
+            successfulAttachments.length >=
+            AiAssistantService.MAX_ATTACHMENTS_PER_CONVERSATION
+          ) {
+            sendCapErrorAndEnd();
+            return;
+          }
+
+          // Pull all chunks for this file from FastAPI; this is preferred
+          // over `vector_store.search(file_id)` because broad questions
+          // ("summarize this file") don't embed-rank well and would miss
+          // sections.
+          let concatenated = '';
+          let chunkCount = 0;
+          try {
+            const chunksResp = await axios.get(
+              `${this.aiServiceUrl}/vectors/file/${fileId}/all-chunks`,
+              {
+                timeout: 30000,
+                headers: { 'X-API-Key': this.aiServiceApiKey },
+              },
+            );
+            concatenated = chunksResp.data?.content || '';
+            chunkCount = chunksResp.data?.chunk_count || 0;
+          } catch (err: any) {
+            this.logger.error(
+              `[ATTACHMENT] Failed to fetch chunks for room file ${fileId}: ${err.message}`,
+            );
+            const errorPayload = {
+              error:
+                'Could not load this room file (it may still be processing). Try again in a moment.',
+            };
+            res.write(`event: error\ndata: ${JSON.stringify(errorPayload)}\n\n`);
+            if (typeof (res as any).flush === 'function') (res as any).flush();
+            res.end();
+            return;
+          }
+
+          if (!concatenated) {
+            this.logger.warn(
+              `[ATTACHMENT] Room file ${fileId} returned empty content — skipping attachment`,
+            );
+          } else {
+            const roomFileRow = this.attachmentRepository.create({
+              conversation,
+              url: dedupUrl,
+              type: AiAssistantService.mimeToAttachmentType(
+                file.mimeType,
+                file.originalName,
+              ),
+              originalName: file.originalName,
+              fileSize: file.size,
+              context: concatenated,
+              inVectorDB: false,
+            });
+            await this.attachmentRepository.save(roomFileRow);
+            currentAttachments.push(roomFileRow);
+            conversation.attachments = currentAttachments;
+            this.logger.log(
+              `[ATTACHMENT] Attached room file '${file.originalName}' ` +
+                `(${concatenated.length} chars across ${chunkCount} stored chunks) ` +
+                `to conversation ${conversationId}`,
+            );
+          }
+        } else {
+          this.logger.log(
+            `[ATTACHMENT] Room file ${fileId} already attached to conversation ${conversationId} — reusing`,
+          );
+        }
+      }
+    }
+
+    // Build the latest-first list of all previously-extracted Flow 1
+    // attachments. The new file's context is still empty at this point —
+    // FastAPI will extract it and we'll save it after the response.
+    storedAttachments = this.buildStoredAttachments(currentAttachments);
 
     // Flow 2 flag is true if ANY attachment lives in the vector DB.
     hasVectorAttachment = currentAttachments.some((a) => a.inVectorDB);
 
-    if (attachmentContext) {
+    if (storedAttachments.length > 0) {
+      const totalChars = storedAttachments.reduce(
+        (sum, a) => sum + a.content.length,
+        0,
+      );
       this.logger.log(
-        `[ATTACHMENT] Using combined Flow 1 context from ${currentAttachments.filter((a) => a.context).length} file(s), ` +
-        `${attachmentContext.length} chars total`,
+        `[ATTACHMENT] Sending ${storedAttachments.length} stored file(s) ` +
+          `(latest first), ${totalChars} chars total`,
       );
     }
 
@@ -785,15 +977,12 @@ export class AiAssistantService {
 
       // Attachment fields — with multi-file support, these are not
       // mutually exclusive. A query can simultaneously:
-      //  - carry stored context from prior files (attachment_context),
+      //  - carry stored context from prior files (stored_attachments),
       //  - ask FastAPI to process a newly added file (attachment_s3_url),
       //  - flag that some attachment lives in Qdrant (has_vector_attachment).
       // FastAPI combines whichever arrive.
-      if (attachmentContext) {
-        requestPayload.attachment_context = attachmentContext;
-        this.logger.log(
-          `[ATTACHMENT] Including stored context for ${currentAttachments.filter((a) => a.context).length} file(s), ${attachmentContext.length} chars`,
-        );
+      if (storedAttachments.length > 0) {
+        requestPayload.stored_attachments = storedAttachments;
       }
       if (isFirstAttachment) {
         requestPayload.attachment_s3_url = messageDto.attachmentS3Url;
@@ -836,91 +1025,122 @@ export class AiAssistantService {
       let extractedContentLength: number | null = null;
       let chunksCreatedForAttachment: number | null = null;
 
-      // Pipe FastAPI stream to frontend with data collection
+      // Pipe FastAPI stream to frontend with data collection.
+      //
+      // SSE events are delimited by a blank line. A single event's
+      // `data:` field can be very large (e.g. the `complete` event carries
+      // the full extracted_content of an attachment, which can be tens
+      // of KBs). Node TCP/HTTP chunk boundaries DO NOT respect SSE event
+      // boundaries — large data lines arrive split across chunks. An
+      // earlier version split each chunk by '\n' and JSON.parsed each
+      // `data:` line independently, which silently dropped any event
+      // whose payload didn't fit in a single Buffer chunk.
+      //
+      // Important: sse_starlette (used by FastAPI's EventSourceResponse)
+      // emits CRLF line endings by default, so events arrive as
+      //   event: chunk\r\ndata: {...}\r\n\r\n
+      // We normalize \r\n → \n on ingress so the rest of the parser can
+      // assume LF-only and split on the simpler "\n\n" terminator.
+      // Forward raw bytes to the frontend unchanged so its parser still works.
+      let parseBuffer = '';
       response.data.on('data', (chunk: Buffer) => {
-        const lines = chunk.toString().split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const eventData = JSON.parse(line.substring(6));
-              
-              // Collect answer chunks
-              if (eventData.text) {
-                fullAnswer += eventData.text;
-              }
-              
-              // Collect metadata from complete event
-              if (eventData.sources) {
-                sources = eventData.sources;
-              }
-              if (eventData.chunks_retrieved !== undefined) {
-                chunksRetrieved = eventData.chunks_retrieved;
-              }
-              if (eventData.processing_time_ms !== undefined) {
-                processingTimeMs = eventData.processing_time_ms;
-              }
-              if (eventData.flow_used) {
-                attachmentFlowUsed = eventData.flow_used;
-              }
-              if (eventData.extracted_content) {
-                extractedContent = eventData.extracted_content;
-              }
-              if (eventData.extracted_content_length) {
-                extractedContentLength = eventData.extracted_content_length;
-              }
-              if (eventData.chunks_created_for_attachment) {
-                chunksCreatedForAttachment = eventData.chunks_created_for_attachment;
-              }
-            } catch (e) {
-              // Ignore parse errors for partial chunks
-            }
-          }
-        }
-        
-        // Forward chunk to frontend and flush immediately
+        // Forward raw bytes to frontend immediately (parser is independent).
         res.write(chunk);
-        
-        // Explicitly flush the response to prevent buffering
         if (typeof (res as any).flush === 'function') {
           (res as any).flush();
+        }
+
+        // Append to buffer and normalize CRLF → LF on the full buffer so
+        // a \r/\n pair that landed in two different TCP chunks still
+        // collapses correctly.
+        parseBuffer = (parseBuffer + chunk.toString('utf8')).replace(/\r\n/g, '\n');
+        let eventBoundary = parseBuffer.indexOf('\n\n');
+        while (eventBoundary !== -1) {
+          const rawEvent = parseBuffer.slice(0, eventBoundary);
+          parseBuffer = parseBuffer.slice(eventBoundary + 2);
+          eventBoundary = parseBuffer.indexOf('\n\n');
+
+          // An event can have multiple `data:` lines (concatenated per SSE
+          // spec) plus an `event:` line. Concatenate the data payload.
+          let dataPayload = '';
+          for (const line of rawEvent.split('\n')) {
+            if (line.startsWith('data:')) {
+              dataPayload += line.slice(5).replace(/^ /, '');
+            }
+          }
+          if (!dataPayload) continue;
+
+          let eventData: any;
+          try {
+            eventData = JSON.parse(dataPayload);
+          } catch {
+            this.logger.warn(
+              `[SSE] Failed to parse event payload (${dataPayload.length} bytes): ${dataPayload.slice(0, 80)}…`,
+            );
+            continue;
+          }
+
+          if (eventData.text) {
+            fullAnswer += eventData.text;
+          }
+          if (eventData.sources) {
+            sources = eventData.sources;
+          }
+          if (eventData.chunks_retrieved !== undefined) {
+            chunksRetrieved = eventData.chunks_retrieved;
+          }
+          if (eventData.processing_time_ms !== undefined) {
+            processingTimeMs = eventData.processing_time_ms;
+          }
+          if (eventData.flow_used) {
+            attachmentFlowUsed = eventData.flow_used;
+          }
+          if (eventData.extracted_content) {
+            extractedContent = eventData.extracted_content;
+          }
+          if (eventData.extracted_content_length) {
+            extractedContentLength = eventData.extracted_content_length;
+          }
+          if (eventData.chunks_created_for_attachment) {
+            chunksCreatedForAttachment = eventData.chunks_created_for_attachment;
+          }
         }
       });
 
       response.data.on('end', async () => {
         this.logger.log('Stream completed, saving to database');
-        
+
         try {
-          // Persist the newly-added attachment's processing result onto
-          // the ConversationAttachment row (not the legacy scalar
-          // columns). This lets each file keep its own Flow 1 context or
-          // Flow 2 flag without conflicting with other attachments in
-          // the same conversation.
-          if (isFirstAttachment && newAttachment && attachmentFlowUsed) {
-            this.logger.log(
-              `[ATTACHMENT] FastAPI response - flow_used=${attachmentFlowUsed}, ` +
-              `extracted_content_length=${extractedContentLength || 0}`
-            );
-
-            if (attachmentFlowUsed === 'direct_injection') {
-              newAttachment.context = extractedContent || null;
-              this.logger.log(
-                `[ATTACHMENT] ✓ Flow 1 Complete: Stored attachment context (${extractedContentLength || 0} chars) on attachment ${newAttachment.id}`
-              );
-            } else if (attachmentFlowUsed === 'vector_storage') {
-              newAttachment.inVectorDB = true;
-              this.logger.log(
-                `[ATTACHMENT] ✓ Flow 2 Complete: Stored in vector DB (${chunksCreatedForAttachment || 0} chunks) for attachment ${newAttachment.id}`
-              );
-            }
-
-            await this.attachmentRepository.save(newAttachment);
-          }
+          // Persist the newly-added attachment's processing result, or
+          // delete the row if extraction failed. Keeping zombie rows
+          // around blocks future retries (URL-based dedup) and eats slots
+          // toward the cap.
+          await this.finalizeAttachmentRow(
+            newAttachment,
+            attachmentFlowUsed,
+            extractedContent,
+            extractedContentLength,
+            chunksCreatedForAttachment,
+          );
 
           // Enrich sources with original filenames before persisting.
           const enrichedSources = await this.fileService.enrichSourcesWithFileNames(
             sources,
           );
+
+          // Stream the enriched sources to the frontend BEFORE we close
+          // the connection. The original `sources` event from FastAPI
+          // doesn't have fileNames (those live in our DB), so without
+          // this the source pills wouldn't appear until the next
+          // background refetch — which the user perceived as sources
+          // "showing up later". This event is emitted only once per
+          // turn, after the answer text is fully streamed.
+          if (enrichedSources && enrichedSources.length > 0) {
+            res.write(
+              `event: sources_final\ndata: ${JSON.stringify({ sources: enrichedSources })}\n\n`,
+            );
+            if (typeof (res as any).flush === 'function') (res as any).flush();
+          }
 
           // Save assistant message to database
           const assistantMessage = this.messageRepository.create({
@@ -952,14 +1172,34 @@ export class AiAssistantService {
         res.end();
       });
 
-      response.data.on('error', (error: any) => {
+      response.data.on('error', async (error: any) => {
         this.logger.error(`Stream error: ${error.message}`, error.stack);
+        // Stream broke mid-flight — extraction will not complete, so
+        // remove the zombie row before it blocks future retries.
+        await this.finalizeAttachmentRow(
+          newAttachment,
+          attachmentFlowUsed,
+          extractedContent,
+          extractedContentLength,
+          chunksCreatedForAttachment,
+        ).catch(() => undefined);
         res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
         res.end();
       });
 
     } catch (error: any) {
       this.logger.error(`AI streaming query failed: ${error.message}`, error.stack);
+
+      // axios.post itself failed (network error, FastAPI down, etc.) —
+      // FastAPI never saw the request, so the row we just created is a
+      // zombie. Clean it up.
+      await this.finalizeAttachmentRow(
+        newAttachment,
+        null,
+        null,
+        null,
+        null,
+      ).catch(() => undefined);
 
       // SSE headers are already sent (flushed in controller), so we can't throw
       // HTTP exceptions — NestJS exception filters won't work. Instead, send

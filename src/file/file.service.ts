@@ -43,6 +43,30 @@ export class FileService {
   }
 
   /**
+   * Resolve a room-scoped file by id, but only if it belongs to one of
+   * the user's accessible rooms. Used by the AI assistant when the user
+   * picks a room file from the in-chat picker — we need the file's
+   * S3 URL, mime type, and size to seed a ConversationAttachment row,
+   * but must reject requests for files in rooms the user isn't a member of.
+   *
+   * Returns null on miss instead of throwing (the caller wants a soft
+   * "not accessible / not found" outcome).
+   */
+  async getRoomFileForRooms(
+    fileId: string,
+    allowedRoomIds: string[],
+  ): Promise<File | null> {
+    if (!fileId || allowedRoomIds.length === 0) return null;
+    const file = await this.fileRepository.findOne({
+      where: { id: fileId },
+      relations: ['room'],
+    });
+    if (!file || !file.room) return null;
+    if (!allowedRoomIds.includes(file.room.id)) return null;
+    return file;
+  }
+
+  /**
    * Look up the original filenames for a list of file IDs in a single query.
    * Returns a Map<fileId, originalName>; missing IDs simply aren't in the map.
    * Used to enrich AI-source citations so users see "lecture-3.pdf" instead

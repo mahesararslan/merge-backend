@@ -8,7 +8,9 @@ import { Notification } from '../entities/notification.entity';
 import { FcmToken } from '../entities/fcm-token.entity';
 import { Announcement } from '../entities/announcement.entity';
 import { Assignment } from '../entities/assignment.entity';
+import { AssignmentAttempt } from '../entities/assignment-attempt.entity';
 import { Quiz } from '../entities/quiz.entity';
+import { QuizAttempt } from '../entities/quiz-attempt.entity';
 import { LiveSession, SessionStatus } from '../entities/live-video-session.entity';
 import { RoomMember } from '../entities/room-member.entity';
 import { FirebaseService } from '../firebase/firebase.service';
@@ -257,6 +259,200 @@ export class NotificationService {
     }
   }
 
+  /**
+   * Notify the assignment author (instructor) that a student submitted.
+   * Caller must pass `attempt` with `user`, `assignment`, `assignment.room`,
+   * and `assignment.author` relations loaded.
+   */
+  async createAssignmentSubmittedNotification(attempt: AssignmentAttempt): Promise<void> {
+    try {
+      const assignment = attempt.assignment;
+      const submitter = attempt.user;
+      const recipientId = assignment.author?.id;
+
+      if (!recipientId || recipientId === submitter.id) {
+        return;
+      }
+
+      const submitterName =
+        [submitter.firstName, submitter.lastName].filter(Boolean).join(' ').trim() ||
+        submitter.email ||
+        'A student';
+
+      const content = `${submitterName} submitted "${assignment.title}" in ${assignment.room.title}`;
+      const actionUrl = `/rooms/${assignment.room.id}/assignments/${assignment.id}`;
+
+      const notification = this.notificationRepository.create({
+        user: { id: recipientId },
+        content,
+        metadata: {
+          roomId: assignment.room.id,
+          roomTitle: assignment.room.title,
+          assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          attemptId: attempt.id,
+          submitterId: submitter.id,
+          submitterName,
+          kind: 'assignment-submitted',
+          actionUrl,
+        },
+        isRead: false,
+        pushSent: false,
+      });
+
+      const saved = await this.notificationRepository.save(notification);
+
+      this.sendFcmNotifications(
+        [recipientId],
+        assignment.room.title,
+        content,
+        {
+          type: 'assignment-submitted',
+          roomId: assignment.room.id,
+          roomTitle: assignment.room.title,
+          assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          attemptId: attempt.id,
+          submitterId: submitter.id,
+          submitterName,
+          actionUrl,
+        },
+        [saved.id],
+      ).catch((error: any) => {
+        this.logger.error(`Failed to send FCM submission notification: ${error.message}`);
+      });
+    } catch (error: any) {
+      this.logger.error(`Error creating assignment-submitted notification: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Notify a student that their assignment attempt was graded by the instructor.
+   * Caller must pass `attempt` with `user`, `assignment`, and `assignment.room`
+   * relations loaded.
+   */
+  async createAssignmentGradedNotification(attempt: AssignmentAttempt): Promise<void> {
+    try {
+      const assignment = attempt.assignment;
+      const recipientId = attempt.user?.id;
+      if (!recipientId) {
+        return;
+      }
+
+      const content = `Your submission for "${assignment.title}" in ${assignment.room.title} has been graded`;
+      const actionUrl = `/rooms/${assignment.room.id}/assignments/${assignment.id}`;
+
+      const notification = this.notificationRepository.create({
+        user: { id: recipientId },
+        content,
+        metadata: {
+          roomId: assignment.room.id,
+          roomTitle: assignment.room.title,
+          assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          attemptId: attempt.id,
+          score: attempt.score,
+          kind: 'assignment-graded',
+          actionUrl,
+        },
+        isRead: false,
+        pushSent: false,
+      });
+
+      const saved = await this.notificationRepository.save(notification);
+
+      this.sendFcmNotifications(
+        [recipientId],
+        assignment.room.title,
+        content,
+        {
+          type: 'assignment-graded',
+          roomId: assignment.room.id,
+          roomTitle: assignment.room.title,
+          assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          attemptId: attempt.id,
+          score: String(attempt.score ?? ''),
+          actionUrl,
+        },
+        [saved.id],
+      ).catch((error: any) => {
+        this.logger.error(`Failed to send FCM grading notification: ${error.message}`);
+      });
+    } catch (error: any) {
+      this.logger.error(`Error creating assignment-graded notification: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Notify the quiz author (instructor) that a student submitted a quiz attempt.
+   * Caller must pass `attempt` with `user`, `quiz`, `quiz.room`, and `quiz.author`
+   * relations loaded.
+   */
+  async createQuizSubmittedNotification(attempt: QuizAttempt): Promise<void> {
+    try {
+      const quiz = attempt.quiz;
+      const submitter = attempt.user;
+      const recipientId = quiz.author?.id;
+
+      if (!recipientId || recipientId === submitter.id) {
+        return;
+      }
+
+      const submitterName =
+        [submitter.firstName, submitter.lastName].filter(Boolean).join(' ').trim() ||
+        submitter.email ||
+        'A student';
+
+      const content = `${submitterName} submitted "${quiz.title}" in ${quiz.room.title}`;
+      const actionUrl = `/rooms/${quiz.room.id}/quizzes/${quiz.id}`;
+
+      const notification = this.notificationRepository.create({
+        user: { id: recipientId },
+        content,
+        metadata: {
+          roomId: quiz.room.id,
+          roomTitle: quiz.room.title,
+          quizId: quiz.id,
+          quizTitle: quiz.title,
+          attemptId: attempt.id,
+          submitterId: submitter.id,
+          submitterName,
+          score: attempt.score,
+          kind: 'quiz-submitted',
+          actionUrl,
+        },
+        isRead: false,
+        pushSent: false,
+      });
+
+      const saved = await this.notificationRepository.save(notification);
+
+      this.sendFcmNotifications(
+        [recipientId],
+        quiz.room.title,
+        content,
+        {
+          type: 'quiz-submitted',
+          roomId: quiz.room.id,
+          roomTitle: quiz.room.title,
+          quizId: quiz.id,
+          quizTitle: quiz.title,
+          attemptId: attempt.id,
+          submitterId: submitter.id,
+          submitterName,
+          score: String(attempt.score ?? ''),
+          actionUrl,
+        },
+        [saved.id],
+      ).catch((error: any) => {
+        this.logger.error(`Failed to send FCM quiz-submission notification: ${error.message}`);
+      });
+    } catch (error: any) {
+      this.logger.error(`Error creating quiz-submitted notification: ${error.message}`, error.stack);
+    }
+  }
+
   private async sendFcmNotifications(
     userIds: string[],
     roomTitle: string,
@@ -294,6 +490,9 @@ export class NotificationService {
         data.type === 'assignment-due-soon' ? 'Assignment Due Soon' :
         data.type === 'quiz-due-soon' ? 'Quiz Due Soon' :
         data.type === 'calendar-reminder' ? 'Calendar Reminder' :
+        data.type === 'assignment-submitted' ? 'Assignment Submitted' :
+        data.type === 'assignment-graded' ? 'Assignment Graded' :
+        data.type === 'quiz-submitted' ? 'Quiz Submitted' :
         'New Announcement';
 
       // Send multicast notification

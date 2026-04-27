@@ -197,7 +197,7 @@ export class RoomService {
     });
   }
 
-  async findOne(id: string): Promise<any> {
+  async findOne(id: string, userId?: string): Promise<any> {
     const room = await this.roomRepository.findOne({
       where: { id },
       relations: ['admin', 'tags'],
@@ -225,9 +225,26 @@ export class RoomService {
       image: m.user.image,
     }));
 
+    // Resolve the calling user's role within this room.
+    // 'admin' = room creator, 'moderator'/'member' = role on room_members, otherwise null.
+    let userRole: 'admin' | 'moderator' | 'member' | null = null;
+    if (userId) {
+      if (room.admin?.id === userId) {
+        userRole = 'admin';
+      } else {
+        const membership = await this.roomMemberRepository.findOne({
+          where: { room: { id }, user: { id: userId } },
+        });
+        if (membership) {
+          userRole = membership.role as 'moderator' | 'member';
+        }
+      }
+    }
+
     return {
       ...this.formatRoomResponse(room),
       moderators: formattedModerators,
+      userRole,
     };
   }
 

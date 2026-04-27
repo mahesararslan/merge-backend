@@ -13,10 +13,10 @@ import { PlanTier, PlanRole } from '../entities/subscription-plan.entity';
 import { NotificationService } from '../notification/notification.service';
 import { ConfigService } from '@nestjs/config';
 
-// Number of challenge completions per tier required, *within a calendar month*,
-// to earn the badge for that tier in that month. The user can earn the same
-// badge again next month — the counter resets to 0 every month.
-const BADGE_MONTHLY_THRESHOLD: Record<ChallengeType, number> = {
+// Default seed thresholds — admin can edit these per-badge afterwards via
+// /admin/rewards. The actual threshold the service reads at runtime lives on
+// the badge row (`badge.requiredCount`), not in this constant.
+const SEED_BADGE_THRESHOLD: Record<ChallengeType, number> = {
   [ChallengeType.DAILY]: 5,
   [ChallengeType.WEEKLY]: 4,
   [ChallengeType.MONTHLY]: 2,
@@ -75,18 +75,17 @@ export class RewardsService implements OnModuleInit {
 
   private async seedBadges(): Promise<void> {
     const defs = [
-      { name: 'Daily Champion',  description: 'Complete 5 daily challenges this month to unlock 10% off',   icon: 'flame',     tier: BadgeTier.DAILY,   discountPercentage: 10 },
-      { name: 'Weekly Scholar',  description: 'Complete 4 weekly challenges this month to unlock 20% off',  icon: 'book-open', tier: BadgeTier.WEEKLY,  discountPercentage: 20 },
-      { name: 'Monthly Master',  description: 'Complete 2 monthly challenges this month to unlock 30% off', icon: 'trophy',    tier: BadgeTier.MONTHLY, discountPercentage: 30 },
+      { name: 'Daily Champion',  description: 'Complete daily challenges this month to unlock 10% off',   icon: 'flame',     tier: BadgeTier.DAILY,   discountPercentage: 10, requiredCount: SEED_BADGE_THRESHOLD[ChallengeType.DAILY] },
+      { name: 'Weekly Scholar',  description: 'Complete weekly challenges this month to unlock 20% off',  icon: 'book-open', tier: BadgeTier.WEEKLY,  discountPercentage: 20, requiredCount: SEED_BADGE_THRESHOLD[ChallengeType.WEEKLY] },
+      { name: 'Monthly Master',  description: 'Complete monthly challenges this month to unlock 30% off', icon: 'trophy',    tier: BadgeTier.MONTHLY, discountPercentage: 30, requiredCount: SEED_BADGE_THRESHOLD[ChallengeType.MONTHLY] },
     ];
     for (const def of defs) {
       const exists = await this.badgeRepo.findOne({ where: { name: def.name } });
-      if (exists) {
-        await this.badgeRepo.update({ name: def.name }, { description: def.description });
-      } else {
+      if (!exists) {
         await this.badgeRepo.save(this.badgeRepo.create(def));
         this.logger.log(`Seeded badge: ${def.name}`);
       }
+      // No-op on existing rows — the admin owns name/description/threshold/discount after seed.
     }
   }
 
@@ -248,16 +247,14 @@ export class RewardsService implements OnModuleInit {
 
   /** Award the badge for this tier IF the user's monthly counter has reached the threshold. */
   private async checkAndAwardBadge(userId: string, tier: ChallengeType): Promise<void> {
-    const threshold = BADGE_MONTHLY_THRESHOLD[tier];
-    const periodMonth = this.getMonthStart(new Date());
+    const badge = await this.badgeRepo.findOne({ where: { tier: BADGE_TIER_MAP[tier], isActive: true } });
+    if (!badge) return;
 
+    const periodMonth = this.getMonthStart(new Date());
     const counter = await this.monthlyProgressRepo.findOne({
       where: { user: { id: userId }, tier, periodMonth: periodMonth as any },
     });
-    if (!counter || counter.completedCount < threshold) return;
-
-    const badge = await this.badgeRepo.findOne({ where: { tier: BADGE_TIER_MAP[tier], isActive: true } });
-    if (!badge) return;
+    if (!counter || counter.completedCount < badge.requiredCount) return;
 
     // One badge per (user, badge, month). If they already have it for this
     // month, don't award again.
@@ -391,19 +388,29 @@ export class RewardsService implements OnModuleInit {
       userBadge: currentMonthBadgeMap.get(badge.id) ?? null,
     }));
 
-    // Per-tier monthly progress for the current month (drives the X/threshold display)
+    // Per-tier monthly progress for the current month. Thresholds come from
+    // the active badge of each tier so admin edits to `requiredCount` flow
+    // through to the UI immediately.
     const monthlyProgress = await this.monthlyProgressRepo.find({
       where: { user: { id: userId }, periodMonth: currentMonth as any },
     });
+    const thresholdByTier: Record<string, number> = {
+      daily: SEED_BADGE_THRESHOLD[ChallengeType.DAILY],
+      weekly: SEED_BADGE_THRESHOLD[ChallengeType.WEEKLY],
+      monthly: SEED_BADGE_THRESHOLD[ChallengeType.MONTHLY],
+    };
+    for (const b of allBadges) {
+      thresholdByTier[b.tier] = b.requiredCount;
+    }
     const monthlyProgressByTier: Record<string, { completed: number; threshold: number }> = {
-      daily:   { completed: 0, threshold: BADGE_MONTHLY_THRESHOLD[ChallengeType.DAILY] },
-      weekly:  { completed: 0, threshold: BADGE_MONTHLY_THRESHOLD[ChallengeType.WEEKLY] },
-      monthly: { completed: 0, threshold: BADGE_MONTHLY_THRESHOLD[ChallengeType.MONTHLY] },
+      daily:   { completed: 0, threshold: thresholdByTier.daily },
+      weekly:  { completed: 0, threshold: thresholdByTier.weekly },
+      monthly: { completed: 0, threshold: thresholdByTier.monthly },
     };
     for (const row of monthlyProgress) {
       monthlyProgressByTier[row.tier] = {
         completed: row.completedCount,
-        threshold: BADGE_MONTHLY_THRESHOLD[row.tier as ChallengeType],
+        threshold: thresholdByTier[row.tier] ?? monthlyProgressByTier[row.tier].threshold,
       };
     }
 

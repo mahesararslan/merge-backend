@@ -608,7 +608,7 @@ export class QuizService {
   async submitAttempt(submitAttemptDto: SubmitAttemptDto, userId: string) {
     const quiz = await this.quizRepository.findOne({
       where: { id: submitAttemptDto.quizId },
-      relations: ['room', 'questions'],
+      relations: ['room', 'questions', 'author'],
     });
 
     if (!quiz) {
@@ -667,6 +667,12 @@ export class QuizService {
 
     const savedAttempt = await this.attemptRepository.save(attempt);
     this.rewardsService.onAction(userId, ChallengeAction.QUIZ_COMPLETED).catch(() => {});
+
+    // Notify the quiz author (instructor) — fire-and-forget
+    this.notificationService
+      .createQuizSubmittedNotification({ ...savedAttempt, quiz, user })
+      .catch(() => {});
+
     return this.formatAttemptResponse(savedAttempt);
   }
 

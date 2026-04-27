@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
 import { UserStreak } from '../entities/user-streak.entity';
 import { Badge, BadgeTier } from '../entities/badge.entity';
 import { UserBadge } from '../entities/user-badge.entity';
@@ -11,13 +12,6 @@ import { User } from '../entities/user.entity';
 import { PlanTier } from '../entities/subscription-plan.entity';
 import { NotificationService } from '../notification/notification.service';
 import { ConfigService } from '@nestjs/config';
-
-// How many challenges are active per period from the full pool
-const SCHEDULED_COUNT: Record<ChallengeType, number> = {
-  [ChallengeType.DAILY]: 3,
-  [ChallengeType.WEEKLY]: 3,
-  [ChallengeType.MONTHLY]: 2,
-};
 
 // Number of challenge completions per tier required, *within a calendar month*,
 // to earn the badge for that tier in that month. The user can earn the same
@@ -77,7 +71,6 @@ export class RewardsService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.seedBadges();
-    await this.seedChallengeDefinitions();
   }
 
   private async seedBadges(): Promise<void> {
@@ -97,33 +90,21 @@ export class RewardsService implements OnModuleInit {
     }
   }
 
-  private async seedChallengeDefinitions(): Promise<void> {
-    const defs = [
-      // Daily — small targets that any user can hit on the free plan
-      { name: 'Task Sprinter',    description: 'Complete 1 calendar task before its deadline',   icon: 'check-circle', tier: ChallengeType.DAILY,   actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 1,  points: 10, minPlanTier: PlanTier.FREE },
-      { name: 'Note Creator',     description: 'Create 1 note today',                            icon: 'file-text',    tier: ChallengeType.DAILY,   actionType: ChallengeAction.NOTE_CREATED,            target: 1,  points: 10, minPlanTier: PlanTier.FREE },
-      { name: 'Quiz Taker',       description: 'Complete a quiz today',                          icon: 'help-circle',  tier: ChallengeType.DAILY,   actionType: ChallengeAction.QUIZ_COMPLETED,           target: 1,  points: 15, minPlanTier: PlanTier.FREE },
-      { name: 'Homework Hero',    description: 'Submit an assignment today',                     icon: 'upload',       tier: ChallengeType.DAILY,   actionType: ChallengeAction.ASSIGNMENT_SUBMITTED,     target: 1,  points: 15, minPlanTier: PlanTier.FREE },
-      // Weekly
-      { name: 'Weekly Achiever',  description: 'Complete 10 tasks this week',                    icon: 'target',       tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 10, points: 50, minPlanTier: PlanTier.FREE },
-      { name: 'Knowledge Builder',description: 'Create 5 notes this week',                       icon: 'book',         tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.NOTE_CREATED,            target: 5,  points: 50, minPlanTier: PlanTier.FREE },
-      { name: 'Quiz Champion',    description: 'Complete 3 quizzes this week',                   icon: 'award',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.QUIZ_COMPLETED,           target: 3,  points: 60, minPlanTier: PlanTier.PRO  },
-      { name: 'Live Learner',     description: 'Attend a live session this week',                icon: 'video',        tier: ChallengeType.WEEKLY,  actionType: ChallengeAction.LIVE_SESSION_ATTENDED,   target: 1,  points: 40, minPlanTier: PlanTier.FREE },
-      // Monthly — larger targets, restricted to paid plans where note/task limits don't bite
-      { name: 'Monthly Champion', description: 'Complete 30 tasks this month',                   icon: 'star',         tier: ChallengeType.MONTHLY, actionType: ChallengeAction.CALENDAR_TASK_COMPLETED, target: 30, points: 200, minPlanTier: PlanTier.FREE },
-      { name: 'Scholar',          description: 'Create 20 notes this month',                     icon: 'book-open',    tier: ChallengeType.MONTHLY, actionType: ChallengeAction.NOTE_CREATED,            target: 20, points: 150, minPlanTier: PlanTier.PRO  },
-    ];
-    for (const def of defs) {
-      const exists = await this.challengeDefRepo.findOne({ where: { name: def.name } });
-      if (exists) {
-        await this.challengeDefRepo.update(
-          { name: def.name },
-          { target: def.target, description: def.description, minPlanTier: def.minPlanTier },
-        );
-      } else {
-        await this.challengeDefRepo.save(this.challengeDefRepo.create(def));
-        this.logger.log(`Seeded challenge: ${def.name}`);
-      }
+  // ─── Cleanup cron ──────────────────────────────────────────────────────────
+
+  // 03:00 UTC daily — keeps a 7-day grace window for admin to review recent
+  // challenges in /admin/rewards before they vanish. The IS NULL clause sweeps
+  // any legacy evergreen rows left behind from the previous sliding-window
+  // design on first run. Cascade on user_challenge_progress wipes progress.
+  @Cron('0 3 * * *', { timeZone: 'UTC' })
+  async pruneExpiredChallenges(): Promise<void> {
+    const result = await this.challengeDefRepo
+      .createQueryBuilder()
+      .delete()
+      .where("period_end IS NULL OR period_end < NOW() - INTERVAL '7 days'")
+      .execute();
+    if (result.affected) {
+      this.logger.log(`Pruned ${result.affected} expired challenge definition(s)`);
     }
   }
 
@@ -135,109 +116,31 @@ export class RewardsService implements OnModuleInit {
     return defs.filter((d) => (PLAN_TIER_RANK[d.minPlanTier] ?? 0) <= userRank);
   }
 
-  // ─── Scheduling ────────────────────────────────────────────────────────────
-
-  /**
-   * Sliding-window rotation: each period the window shifts by 1 position,
-   * giving `poolSize` distinct combinations before it repeats.
-   */
-  private getScheduledDefs(
-    allDefs: ChallengeDefinition[],
-    tier: ChallengeType,
-    periodStart: Date,
-  ): ChallengeDefinition[] {
-    if (allDefs.length === 0) return [];
-    const count = Math.min(SCHEDULED_COUNT[tier], allDefs.length);
-    const sorted = [...allDefs].sort((a, b) => a.id.localeCompare(b.id));
-    const periodIndex = this.getPeriodIndex(tier, periodStart);
-    const startIdx = periodIndex % sorted.length;
-
-    const selected: ChallengeDefinition[] = [];
-    for (let i = 0; i < count; i++) {
-      selected.push(sorted[(startIdx + i) % sorted.length]);
-    }
-    return selected;
-  }
-
-  private getPeriodIndex(tier: ChallengeType, periodStart: Date): number {
-    const d = new Date(periodStart);
-    if (tier === ChallengeType.DAILY) {
-      return Math.floor(d.getTime() / (24 * 60 * 60 * 1000));
-    }
-    if (tier === ChallengeType.WEEKLY) {
-      return Math.floor(d.getTime() / (7 * 24 * 60 * 60 * 1000));
-    }
-    return d.getFullYear() * 12 + d.getMonth();
-  }
-
-  /** Returns the UTC time when the current period ends (challenges refresh) */
-  private getPeriodEnd(tier: ChallengeType, periodStart: Date): Date {
-    const d = new Date(periodStart);
-    if (tier === ChallengeType.DAILY) {
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
-    }
-    if (tier === ChallengeType.WEEKLY) {
-      const next = new Date(periodStart);
-      next.setDate(next.getDate() + 7);
-      return next;
-    }
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
-  }
-
   // ─── Public trigger method ─────────────────────────────────────────────────
 
   async onAction(userId: string, action: ChallengeAction, value?: number): Promise<void> {
     try {
       if (action === ChallengeAction.FOCUS_SCORE && (!value || value < 75)) return;
 
-      const matchingDefs = await this.challengeDefRepo.find({
-        where: { actionType: action, isActive: true },
-      });
-      if (matchingDefs.length === 0) return;
+      const now = new Date();
+      const activeDefs = await this.challengeDefRepo
+        .createQueryBuilder('d')
+        .where('d.actionType = :action', { action })
+        .andWhere('d.isActive = true')
+        .andWhere('d.periodStart <= :now AND d.periodEnd > :now', { now })
+        .getMany();
+      if (activeDefs.length === 0) return;
 
       const user = await this.userRepo.findOne({ where: { id: userId } });
       if (!user) return;
-      const userTier = user.subscriptionTier ?? PlanTier.FREE;
 
-      // Only definitions visible to this user's plan tier
-      const visibleDefs = this.filterByPlan(matchingDefs, userTier);
+      const visibleDefs = this.filterByPlan(activeDefs, user.subscriptionTier ?? PlanTier.FREE);
       if (visibleDefs.length === 0) return;
 
-      this.logger.log(`onAction(${action}) for user ${userId}: ${visibleDefs.length} visible def(s) on plan ${userTier}`);
-
-      const now = new Date();
-      // Per-tier cache: which evergreen def ids are in today's sliding window.
-      const tierCache = new Map<ChallengeType, Set<string>>();
+      this.logger.log(`onAction(${action}) for user ${userId}: ${visibleDefs.length} active def(s)`);
 
       for (const def of visibleDefs) {
-        // Dated (admin-scheduled) challenges: count progress only inside their window.
-        if (def.periodStart && def.periodEnd) {
-          const inWindow =
-            new Date(def.periodStart).getTime() <= now.getTime() &&
-            now.getTime() < new Date(def.periodEnd).getTime();
-          if (inWindow) {
-            await this.incrementChallengeProgress(userId, def);
-          }
-          continue;
-        }
-
-        // Evergreen challenges: defer to the sliding window.
-        if (!tierCache.has(def.tier)) {
-          const periodStart = this.getPeriodStart(def.tier, now);
-          const allForTier = await this.challengeDefRepo.find({
-            where: { tier: def.tier, isActive: true },
-          });
-          // Only evergreen ones participate in the sliding pool.
-          const evergreenForTier = this.filterByPlan(allForTier, userTier).filter(
-            (d) => !d.periodStart,
-          );
-          const scheduled = this.getScheduledDefs(evergreenForTier, def.tier, periodStart);
-          tierCache.set(def.tier, new Set(scheduled.map((d) => d.id)));
-        }
-
-        if (tierCache.get(def.tier)!.has(def.id)) {
-          await this.incrementChallengeProgress(userId, def);
-        }
+        await this.incrementChallengeProgress(userId, def);
       }
     } catch (error: any) {
       this.logger.error(`Rewards onAction failed for user ${userId}: ${error.message}`);
@@ -251,10 +154,7 @@ export class RewardsService implements OnModuleInit {
   // ─── Core progress logic ───────────────────────────────────────────────────
 
   private async incrementChallengeProgress(userId: string, def: ChallengeDefinition): Promise<void> {
-    // Dated challenges key progress by their own period; evergreen ones by the rolling tier period.
-    const periodStart = def.periodStart
-      ? new Date(def.periodStart)
-      : this.getPeriodStart(def.tier, new Date());
+    const periodStart = new Date(def.periodStart!);
 
     let progress = await this.challengeProgressRepo.findOne({
       where: {
@@ -532,6 +432,15 @@ export class RewardsService implements OnModuleInit {
     const userTier = user?.subscriptionTier ?? PlanTier.FREE;
 
     const now = new Date();
+    const activeDefs = await this.challengeDefRepo
+      .createQueryBuilder('d')
+      .where('d.isActive = true')
+      .andWhere('d.periodStart <= :now AND d.periodEnd > :now', { now })
+      .orderBy(`CASE d.tier WHEN 'daily' THEN 0 WHEN 'weekly' THEN 1 ELSE 2 END`, 'ASC')
+      .addOrderBy('d.periodStart', 'ASC')
+      .getMany();
+    const visibleDefs = this.filterByPlan(activeDefs, userTier);
+
     const results: Array<{
       id: string; name: string; description: string; icon: string;
       type: ChallengeType; actionType: ChallengeAction;
@@ -540,71 +449,34 @@ export class RewardsService implements OnModuleInit {
       periodStart: string; expiresAt: string;
     }> = [];
 
-    for (const tier of [ChallengeType.DAILY, ChallengeType.WEEKLY, ChallengeType.MONTHLY]) {
-      const periodStart = this.getPeriodStart(tier, now);
-      const expiresAt = this.getPeriodEnd(tier, periodStart);
-      const allDefs = await this.challengeDefRepo.find({ where: { tier, isActive: true } });
-      const visibleDefs = this.filterByPlan(allDefs, userTier);
-
-      // Split evergreen vs scheduled (dated) challenges
-      const evergreen = visibleDefs.filter((d) => !d.periodStart);
-      const scheduledByDate = visibleDefs.filter(
-        (d) =>
-          d.periodStart && d.periodEnd &&
-          new Date(d.periodStart).getTime() <= now.getTime() &&
-          now.getTime() < new Date(d.periodEnd).getTime(),
-      );
-
-      // Evergreen ones go through the sliding window; dated ones all show.
-      const slidingPicks = this.getScheduledDefs(evergreen, tier, periodStart);
-      const activeDefs = [...scheduledByDate, ...slidingPicks];
-
-      for (const def of activeDefs) {
-        // For dated challenges, progress is keyed by their own periodStart;
-        // for evergreen, by the rolling tier periodStart.
-        const progressKey = def.periodStart ? new Date(def.periodStart) : periodStart;
-        const progress = await this.challengeProgressRepo.findOne({
-          where: {
-            user: { id: userId },
-            challengeDefinition: { id: def.id },
-            periodStart: progressKey as any,
-          },
-        });
-
-        const expires = def.periodEnd ? new Date(def.periodEnd) : expiresAt;
-        results.push({
-          id: def.id,
-          name: def.name,
-          description: def.description,
-          icon: def.icon,
-          type: def.tier,
-          actionType: def.actionType,
-          currentCount: progress?.currentCount ?? 0,
-          target: def.target,
-          isCompleted: progress?.isCompleted ?? false,
-          points: def.points,
-          periodStart: progressKey.toISOString(),
-          expiresAt: expires.toISOString(),
-        });
-      }
+    for (const def of visibleDefs) {
+      const periodStart = new Date(def.periodStart!);
+      const progress = await this.challengeProgressRepo.findOne({
+        where: {
+          user: { id: userId },
+          challengeDefinition: { id: def.id },
+          periodStart: periodStart as any,
+        },
+      });
+      results.push({
+        id: def.id,
+        name: def.name,
+        description: def.description,
+        icon: def.icon,
+        type: def.tier,
+        actionType: def.actionType,
+        currentCount: progress?.currentCount ?? 0,
+        target: def.target,
+        isCompleted: progress?.isCompleted ?? false,
+        points: def.points,
+        periodStart: periodStart.toISOString(),
+        expiresAt: new Date(def.periodEnd!).toISOString(),
+      });
     }
     return results;
   }
 
   // ─── Date helpers ──────────────────────────────────────────────────────────
-
-  private getPeriodStart(type: ChallengeType, date: Date): Date {
-    const d = new Date(date);
-    if (type === ChallengeType.DAILY) {
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-    }
-    if (type === ChallengeType.WEEKLY) {
-      const day = d.getUTCDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diff));
-    }
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-  }
 
   /** First day of the calendar month containing `date` (UTC). */
   private getMonthStart(date: Date): Date {

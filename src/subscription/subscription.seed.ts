@@ -2,7 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
-import { SubscriptionPlan, PlanTier } from '../entities/subscription-plan.entity';
+import { In } from 'typeorm';
+import { SubscriptionPlan, PlanTier, PlanRole } from '../entities/subscription-plan.entity';
 import { Badge, BadgeTier } from '../entities/badge.entity';
 import { ChallengeDefinition, ChallengeAction } from '../entities/challenge-definition.entity';
 import { ChallengeType } from '../entities/user-challenge-progress.entity';
@@ -28,12 +29,12 @@ export class SubscriptionSeedService implements OnModuleInit {
     await this.syncVariantIds();
   }
 
-  /** Reads LS variant IDs from env and updates existing plan rows */
+  /** Reads LS variant IDs from env and updates the matching plan rows */
   private async syncVariantIds() {
     const variantMap: Partial<Record<PlanTier, string | undefined>> = {
-      [PlanTier.BASIC]: this.configService.get<string>('LEMON_SQUEEZY_BASIC_VARIANT_ID'),
-      [PlanTier.PRO]:   this.configService.get<string>('LEMON_SQUEEZY_PRO_VARIANT_ID'),
-      [PlanTier.MAX]:   this.configService.get<string>('LEMON_SQUEEZY_MAX_VARIANT_ID'),
+      [PlanTier.STUDENT_PLUS]:        this.configService.get<string>('LEMON_SQUEEZY_STUDENT_PLUS_VARIANT_ID'),
+      [PlanTier.INSTRUCTOR_EDUCATOR]: this.configService.get<string>('LEMON_SQUEEZY_EDUCATOR_VARIANT_ID'),
+      [PlanTier.INSTRUCTOR_PRO]:      this.configService.get<string>('LEMON_SQUEEZY_INSTRUCTOR_PRO_VARIANT_ID'),
     };
 
     for (const [tier, variantId] of Object.entries(variantMap)) {
@@ -44,62 +45,108 @@ export class SubscriptionSeedService implements OnModuleInit {
   }
 
   private async seedPlans() {
-    const count = await this.planRepo.count();
-    if (count > 0) return;
+    // Deactivate legacy plans so they don't appear on /billing for new signups
+    const legacy = [PlanTier.FREE, PlanTier.BASIC, PlanTier.PRO, PlanTier.MAX];
+    await this.planRepo.update({ name: In(legacy) }, { isActive: false });
 
+    // Upsert each new plan: insert if missing, update fields if exists.
     const plans: Partial<SubscriptionPlan>[] = [
+      // ── Student plans ───────────────────────────────────────────────────────
       {
-        name: PlanTier.FREE,
-        displayName: 'Free',
+        name: PlanTier.STUDENT_FREE,
+        displayName: 'Student Free',
         priceMonthly: 0,
         currency: 'PKR',
-        features: ['2 rooms', '5 notes', 'Basic calendar', 'Community support'],
-        roomLimit: 2,
+        features: ['Join unlimited rooms', '5 notes', 'Calendar tasks', 'Daily challenges'],
+        targetRole: PlanRole.STUDENT,
+        roomLimit: 0,
         noteLimit: 5,
+        studentsPerRoom: 0,
         hasLectureSummary: false,
         hasFocusTracker: false,
+        hasAiAssistant: false,
+        hasQaBot: false,
         isActive: true,
       },
       {
-        name: PlanTier.BASIC,
-        displayName: 'Basic',
-        priceMonthly: 100,
-        currency: 'PKR',
-        features: ['5 rooms', '10 notes', 'Full calendar', 'Email support'],
-        roomLimit: 5,
-        noteLimit: 10,
-        hasLectureSummary: false,
-        hasFocusTracker: false,
-        isActive: true,
-      },
-      {
-        name: PlanTier.PRO,
-        displayName: 'Pro',
+        name: PlanTier.STUDENT_PLUS,
+        displayName: 'Student Plus',
         priceMonthly: 200,
         currency: 'PKR',
-        features: ['10 rooms', '20 notes', 'Lecture summary', 'Focus tracker', 'Priority support'],
-        roomLimit: 10,
-        noteLimit: 20,
-        hasLectureSummary: true,
+        features: ['Unlimited notes', 'AI Assistant', 'Focus tracker'],
+        targetRole: PlanRole.STUDENT,
+        roomLimit: 0,
+        noteLimit: -1,
+        studentsPerRoom: 0,
+        hasLectureSummary: false,
         hasFocusTracker: true,
+        hasAiAssistant: true,
+        hasQaBot: false,
+        isActive: true,
+      },
+      // ── Instructor plans ────────────────────────────────────────────────────
+      {
+        name: PlanTier.INSTRUCTOR_STARTER,
+        displayName: 'Instructor Starter',
+        priceMonthly: 0,
+        currency: 'PKR',
+        features: ['2 rooms', 'Up to 20 students/room', '10 notes', 'Quizzes & assignments', 'Live sessions'],
+        targetRole: PlanRole.INSTRUCTOR,
+        roomLimit: 2,
+        noteLimit: 10,
+        studentsPerRoom: 20,
+        hasLectureSummary: false,
+        hasFocusTracker: false,
+        hasAiAssistant: false,
+        hasQaBot: false,
         isActive: true,
       },
       {
-        name: PlanTier.MAX,
-        displayName: 'Max',
+        name: PlanTier.INSTRUCTOR_EDUCATOR,
+        displayName: 'Educator',
         priceMonthly: 500,
         currency: 'PKR',
-        features: ['50 rooms', 'Unlimited notes', 'Lecture summary', 'Focus tracker', 'Dedicated support'],
-        roomLimit: 50,
+        features: ['10 rooms', 'Up to 100 students/room', 'Unlimited notes', 'AI Assistant', 'AI lecture summaries (shared with room)'],
+        targetRole: PlanRole.INSTRUCTOR,
+        roomLimit: 10,
         noteLimit: -1,
+        studentsPerRoom: 100,
         hasLectureSummary: true,
-        hasFocusTracker: true,
+        hasFocusTracker: false,
+        hasAiAssistant: true,
+        hasQaBot: false,
+        isActive: true,
+      },
+      {
+        name: PlanTier.INSTRUCTOR_PRO,
+        displayName: 'Instructor Pro',
+        priceMonthly: 1500,
+        currency: 'PKR',
+        features: ['Unlimited rooms', 'Unlimited students/room', 'Unlimited notes', 'AI Assistant', 'Lecture summaries', 'AI bot answers in Live Q&A'],
+        targetRole: PlanRole.INSTRUCTOR,
+        roomLimit: -1,
+        noteLimit: -1,
+        studentsPerRoom: -1,
+        hasLectureSummary: true,
+        hasFocusTracker: false,
+        hasAiAssistant: true,
+        hasQaBot: true,
         isActive: true,
       },
     ];
 
-    await this.planRepo.save(this.planRepo.create(plans as SubscriptionPlan[]));
-    this.logger.log('Seeded 4 subscription plans');
+    for (const plan of plans) {
+      const existing = await this.planRepo.findOne({ where: { name: plan.name } });
+      if (existing) {
+        // Don't clobber the LS variant ID — that's set separately by syncVariantIds()
+        const { lsVariantId, ...updates } = plan as any;
+        void lsVariantId;
+        await this.planRepo.update({ name: plan.name }, updates);
+      } else {
+        await this.planRepo.save(this.planRepo.create(plan as SubscriptionPlan));
+        this.logger.log(`Seeded plan: ${plan.name}`);
+      }
+    }
   }
 
   private async seedBadges() {

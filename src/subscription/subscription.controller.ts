@@ -18,10 +18,9 @@ import { SubscriptionService } from './subscription.service';
 export class SubscriptionController {
   constructor(private readonly subscriptionService: SubscriptionService) {}
 
-  @Public()
   @Get('plans')
-  getPlans() {
-    return this.subscriptionService.getPlans();
+  getPlans(@Request() req) {
+    return this.subscriptionService.getPlans(req.user?.role);
   }
 
   @Get('my')

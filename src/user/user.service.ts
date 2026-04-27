@@ -15,6 +15,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { StoreFcmTokenDto } from './dto/store-fcm-token.dto';
 import { NotificationStatus, User, UserRole } from 'src/entities/user.entity';
+import { PlanTier } from 'src/entities/subscription-plan.entity';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { UpdatePasswordDto } from './dto/update-password.dto';
@@ -445,6 +446,15 @@ export class UserService {
     }
 
     user.role = role;
+
+    // Migrate the user's free tier to a role-specific free tier so plan
+    // limits resolve correctly. Only do this if they're still on a generic
+    // free tier (no paid plan yet).
+    if (user.subscriptionTier === PlanTier.FREE) {
+      user.subscriptionTier =
+        role === UserRole.INSTRUCTOR ? PlanTier.INSTRUCTOR_STARTER : PlanTier.STUDENT_FREE;
+    }
+
     await this.userRepository.save(user);
 
     const profile = this.formatUserProfile(user, true);

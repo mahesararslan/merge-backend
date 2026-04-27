@@ -257,7 +257,7 @@ export class AdminService {
   // ─── Phase 1.4 — Rewards CRUD ────────────────────────────────────────────
 
   listChallenges() {
-    return this.challengeRepo.find({ order: { tier: 'ASC', name: 'ASC' } });
+    return this.challengeRepo.find({ order: { periodStart: 'DESC', name: 'ASC' } });
   }
 
   async createChallenge(dto: any) {

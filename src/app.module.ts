@@ -11,6 +11,7 @@ import { MailModule } from './mail/mail.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TagModule } from './tag/tag.module';
 import { RoomModule } from './room/room.module';
 import { NoteModule } from './note/note.module';
@@ -59,9 +60,10 @@ import { AdminModule } from './admin/admin.module';
         {
           ttl: 60 * 1000, // Time to live for each request in milliseconds which in this case is 1 minute
           limit: 1000, // Maximum number of requests allowed within the TTL
-        }, 
+        },
       ],
     }),
+    ScheduleModule.forRoot(),
     UserModule,
     AuthModule,
     MailModule,

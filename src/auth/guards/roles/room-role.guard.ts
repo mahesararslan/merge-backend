@@ -72,11 +72,14 @@ export class RoomRoleGuard implements CanActivate {
       throw new NotFoundException(`Room with ID ${roomId} not found`);
     }
 
-    // Check if ADMIN role is required (admin-only access)
-    const isAdminOnly = requiredRoles.includes(RoomMemberRole.ADMIN);
-    
+    // Admin-only short-circuit applies ONLY when ADMIN is the SOLE required
+    // role. If ADMIN appears alongside MEMBER/MODERATOR, the intent is
+    // "any of these is fine," not "admin only" — so we fall through to the
+    // member-check branch below.
+    const isAdminOnly =
+      requiredRoles.length === 1 && requiredRoles[0] === RoomMemberRole.ADMIN;
+
     if (isAdminOnly) {
-      // For admin-only routes, only room admin can access
       if (room.admin.id !== userId) {
         throw new ForbiddenException('Only room admin can access this resource');
       }

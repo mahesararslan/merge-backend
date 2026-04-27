@@ -158,10 +158,11 @@ export class LiveSessionService implements OnModuleDestroy {
   }
 
   private async processTranscriptionAsync(session: LiveSession): Promise<void> {
-    // Lecture summary is a Pro/Max feature — check host's subscription tier
-    const { PLAN_LIMITS } = await import('../subscription/plan-limits.const');
+    // Lecture summary is gated on the room HOST's plan, not the viewer's.
+    // Once generated it's saved on the session and shared with all attendees.
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
     const hostTier = session.host?.subscriptionTier;
-    if (hostTier && !PLAN_LIMITS[hostTier].hasLectureSummary) {
+    if (!getPlanLimits(hostTier).hasLectureSummary) {
       this.logger.log(`Skipping lecture summary for session ${session.id}: host on ${hostTier} plan`);
       return;
     }
@@ -877,6 +878,14 @@ export class LiveSessionService implements OnModuleDestroy {
 
     if (!attendee) {
       throw new NotFoundException('You are not an attendee of this session');
+    }
+
+    // Gate: focus tracker requires a plan that includes hasFocusTracker
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
+    if (!getPlanLimits(attendee.user.subscriptionTier).hasFocusTracker) {
+      throw new ForbiddenException(
+        'Focus tracker requires the Student Plus plan. Please upgrade to track your focus.',
+      );
     }
 
     // Update the attendee's focus score

@@ -33,8 +33,8 @@ export class NoteService {
     }
 
     // Enforce plan note limit
-    const { PLAN_LIMITS } = await import('../subscription/plan-limits.const');
-    const limit = PLAN_LIMITS[user.subscriptionTier].noteLimit;
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
+    const limit = getPlanLimits(user.subscriptionTier).noteLimit;
     if (limit !== -1) {
       const noteCount = await this.noteRepository.count({ where: { owner: { id: userId } } });
       if (noteCount >= limit) {

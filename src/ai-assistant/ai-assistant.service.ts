@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -146,6 +146,14 @@ export class AiAssistantService {
       throw new NotFoundException('User not found');
     }
 
+    // Gate: AI Assistant requires a paid plan
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
+    if (!getPlanLimits(user.subscriptionTier).hasAiAssistant) {
+      throw new ForbiddenException(
+        'AI Assistant requires a paid plan. Please upgrade to use this feature.',
+      );
+    }
+
     const conversation = this.conversationRepository.create({
       user,
       title: createDto.title || 'New Conversation',
@@ -164,6 +172,16 @@ export class AiAssistantService {
     userId: string,
     res: Response,
   ): Promise<void> {
+    // Gate: AI Assistant requires a paid plan
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
+    if (!getPlanLimits(user.subscriptionTier).hasAiAssistant) {
+      throw new ForbiddenException(
+        'AI Assistant requires a paid plan. Please upgrade to use this feature.',
+      );
+    }
+
     let conversationId = messageDto.conversationId;
 
     // If no conversationId provided, create a new conversation

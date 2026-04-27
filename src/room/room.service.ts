@@ -75,11 +75,13 @@ export class RoomService {
     }
 
     // Enforce plan room limit
-    const { PLAN_LIMITS } = await import('../subscription/plan-limits.const');
-    const roomCount = await this.roomRepository.count({ where: { admin: { id: adminId } } });
-    const limit = PLAN_LIMITS[admin.subscriptionTier].roomLimit;
-    if (roomCount >= limit) {
-      throw new ForbiddenException(`Room limit reached for your plan (${limit} rooms). Please upgrade.`);
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
+    const limits = getPlanLimits(admin.subscriptionTier);
+    if (limits.roomLimit !== -1) {
+      const roomCount = await this.roomRepository.count({ where: { admin: { id: adminId } } });
+      if (roomCount >= limits.roomLimit) {
+        throw new ForbiddenException(`Room limit reached for your plan (${limits.roomLimit} rooms). Please upgrade.`);
+      }
     }
 
     // Generate unique room code
@@ -106,6 +108,25 @@ export class RoomService {
     this.rewardsService.onAction(adminId, ChallengeAction.ROOM_JOINED)
       .catch((e) => console.error('Reward ROOM_JOINED failed:', e?.message ?? e));
     return this.formatRoomResponse(savedRoom);
+  }
+
+  /**
+   * Throws ForbiddenException if adding one more student would exceed the
+   * per-room cap defined by the room admin's subscription plan.
+   * `admin` must include the `subscriptionTier` field.
+   */
+  private async assertRoomCapacity(roomId: string, admin: User): Promise<void> {
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
+    const limit = getPlanLimits(admin.subscriptionTier).studentsPerRoom;
+    if (limit === -1) return;
+    const memberCount = await this.roomMemberRepository.count({
+      where: { room: { id: roomId } },
+    });
+    if (memberCount >= limit) {
+      throw new ForbiddenException(
+        `This room has reached its student capacity (${limit}). Ask the instructor to upgrade their plan.`,
+      );
+    }
   }
 
   // Extract room code generation to separate method
@@ -523,6 +544,9 @@ export class RoomService {
 
     // If autoJoin is enabled, join directly without approval
     if (room.autoJoin) {
+      // Enforce per-room student capacity (driven by the room admin's plan)
+      await this.assertRoomCapacity(room.id, room.admin);
+
       const roomMember = this.roomMemberRepository.create({
         room,
         user,
@@ -673,6 +697,9 @@ export class RoomService {
     const reviewer = await this.userRepository.findOne({ where: { id: reviewerId } });
 
     if (action === 'accepted') {
+      // Enforce per-room capacity before approving
+      await this.assertRoomCapacity(request.room.id, room.admin);
+
       // Create membership
       const roomMember = this.roomMemberRepository.create({
         room: request.room,

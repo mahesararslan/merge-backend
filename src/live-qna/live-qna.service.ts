@@ -317,6 +317,19 @@ export class LiveQnaService implements OnModuleInit, OnModuleDestroy {
   ): Promise<LiveQnaQuestionResponse> {
     const question = await this.loadQuestionOrFail(questionId, roomId, sessionId);
 
+    // Gate: Q&A bot answers require the room admin (host) to be on Instructor Pro
+    const room = await this.roomRepository.findOne({
+      where: { id: roomId },
+      relations: ['admin'],
+    });
+    if (!room) throw new NotFoundException('Room not found');
+    const { getPlanLimits } = await import('../subscription/plan-limits.const');
+    if (!getPlanLimits(room.admin.subscriptionTier).hasQaBot) {
+      throw new ForbiddenException(
+        'AI bot answers in Live Q&A require the room instructor to be on Instructor Pro plan.',
+      );
+    }
+
     const aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL', 'http://localhost:8001');
     const aiServiceApiKey = this.configService.get<string>('AI_SERVICE_API_KEY', '');
 

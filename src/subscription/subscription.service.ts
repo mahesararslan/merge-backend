@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import * as crypto from 'crypto';
 import {
   lemonSqueezySetup,
@@ -15,11 +15,11 @@ import {
   getSubscription,
 } from '@lemonsqueezy/lemonsqueezy.js';
 import { ConfigService } from '@nestjs/config';
-import { SubscriptionPlan, PlanTier } from '../entities/subscription-plan.entity';
+import { SubscriptionPlan, PlanTier, PlanRole } from '../entities/subscription-plan.entity';
 import { UserSubscription, SubscriptionStatus } from '../entities/user-subscription.entity';
 import { PaymentRecord, PaymentStatus } from '../entities/payment-record.entity';
 import { UserBadge } from '../entities/user-badge.entity';
-import { User } from '../entities/user.entity';
+import { User, UserRole } from '../entities/user.entity';
 import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
@@ -47,8 +47,15 @@ export class SubscriptionService {
     });
   }
 
-  async getPlans(): Promise<SubscriptionPlan[]> {
-    return this.planRepo.find({ where: { isActive: true }, order: { priceMonthly: 'ASC' } });
+  async getPlans(userRole?: UserRole | null): Promise<SubscriptionPlan[]> {
+    const where: any = { isActive: true };
+    if (userRole === UserRole.STUDENT) {
+      where.targetRole = In([PlanRole.STUDENT, PlanRole.ALL]);
+    } else if (userRole === UserRole.INSTRUCTOR) {
+      where.targetRole = In([PlanRole.INSTRUCTOR, PlanRole.ALL]);
+    }
+    // If role is unknown, return all active plans
+    return this.planRepo.find({ where, order: { priceMonthly: 'ASC' } });
   }
 
   async getUserSubscription(userId: string) {

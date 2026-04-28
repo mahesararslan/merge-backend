@@ -866,7 +866,7 @@ export class NotificationService {
         eventTitle: event.title,
         deadline: event.deadline.toISOString(),
         reminderType: type,
-        actionUrl: `/calendar/${event.id}`,
+        actionUrl: `/calendar`,
       },
     );
     this.logger.log(`Sent ${type} reminder push notification for calendar event ${event.id}`);

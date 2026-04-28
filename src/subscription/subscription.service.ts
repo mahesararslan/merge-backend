@@ -12,6 +12,7 @@ import {
   lemonSqueezySetup,
   createCheckout,
   cancelSubscription as lsCancelSubscription,
+  updateSubscription as lsUpdateSubscription,
   getSubscription,
 } from '@lemonsqueezy/lemonsqueezy.js';
 import { ConfigService } from '@nestjs/config';
@@ -140,6 +141,33 @@ export class SubscriptionService {
 
     await lsCancelSubscription(sub.lsSubscriptionId);
     sub.cancelAtPeriodEnd = true;
+    await this.subscriptionRepo.save(sub);
+  }
+
+  /**
+   * Reverse a pending cancellation. Only works while the current period hasn't
+   * ended yet — once `subscription_expired` has fired, the LS subscription is
+   * gone and the user must check out fresh.
+   */
+  async resumeUserSubscription(userId: string): Promise<void> {
+    this.setupLs();
+    const sub = await this.subscriptionRepo.findOne({ where: { user: { id: userId } } });
+    if (!sub || !sub.lsSubscriptionId) {
+      throw new NotFoundException('No subscription to resume');
+    }
+    if (!sub.cancelAtPeriodEnd) {
+      throw new BadRequestException('Subscription is not scheduled to cancel');
+    }
+    if (sub.status === SubscriptionStatus.EXPIRED) {
+      throw new BadRequestException('Subscription has already ended — please re-subscribe');
+    }
+
+    const { error } = await lsUpdateSubscription(sub.lsSubscriptionId, { cancelled: false });
+    if (error) {
+      this.logger.error(`LS resume failed: ${JSON.stringify(error)}`);
+      throw new Error('Failed to resume subscription');
+    }
+    sub.cancelAtPeriodEnd = false;
     await this.subscriptionRepo.save(sub);
   }
 

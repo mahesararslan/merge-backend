@@ -38,6 +38,11 @@ export class SubscriptionController {
     return this.subscriptionService.cancelUserSubscription(req.user.id);
   }
 
+  @Post('my/resume')
+  resumeSubscription(@Request() req) {
+    return this.subscriptionService.resumeUserSubscription(req.user.id);
+  }
+
   @Get('payments')
   getPayments(@Request() req, @Query('page') page = '1', @Query('limit') limit = '10') {
     return this.subscriptionService.getPaymentHistory(req.user.id, +page, +limit);

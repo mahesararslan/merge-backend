@@ -7,7 +7,6 @@ import { Announcement } from '../entities/announcement.entity';
 import { NotificationService } from '../notification/notification.service';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { firstValueFrom } from 'rxjs';
 
 @Processor('announcements')
 @Injectable()
